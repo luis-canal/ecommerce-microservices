@@ -23,8 +23,8 @@ public class CurrencyController {
 
 	@GetMapping
 	public ResponseEntity<CurrencyResponse> findBySourceCurrencyAndTargetCurrency(
-			@RequestParam String sourceCurrency,
-			@RequestParam String targetCurrency
+			@RequestParam("source") String sourceCurrency,
+			@RequestParam("target") String targetCurrency
 	) throws Exception {
 		var response = service.findBySourceCurrencyAndTargetCurrency(sourceCurrency, targetCurrency);
 		return ResponseEntity.ok(response);

@@ -27,7 +27,7 @@ public class CurrencyServiceJpa implements CurrencyService {
         var currency = repository.findBySourceCurrencyAndTargetCurrency(sourceCurrency, targetCurrency)
                 .orElseThrow(() -> new EntityNotFoundException("Cotação não encontrada"));
 
-        String environment = "Currency API running in port " + serverPort;
+        String environment = "Currency API running in Port: " + serverPort;
         return new CurrencyResponse(
                 currency.getSourceCurrency(),
                 currency.getTargetCurrency(),
