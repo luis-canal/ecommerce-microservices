@@ -13,6 +13,11 @@ consul kv put config/product-api/spring.datasource.password "canal222"
 consul kv put config/product-api/app.promotion.message "Customer Week Promotion"
 consul kv put config/product-api,it/app.promotion.message "Promozione Settimana del Cliente"
 
+consul kv put config/currency-api/server.port "8100"
+consul kv put config/currency-api/spring.datasource.url "jdbc:postgresql://localhost/db_currency"
+consul kv put config/currency-api/spring.datasource.username "postgres"
+consul kv put config/currency-api/spring.datasource.password "canal222"
+
 echo.
 echo Consul iniciado e configuracoes carregadas!
 pause
