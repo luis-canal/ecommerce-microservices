@@ -44,6 +44,6 @@ public class ProductController {
     }
     @ExceptionHandler(Exception.class)
     public ResponseEntity<String> exceptionHandler(Exception ex){
-        return ResponseEntity.status(500).body("Ops!!! Algo deu errado.");
+        return ResponseEntity.status(500).body("Ops!!! Algo deu errado. - " + ex.getMessage());
     }
 }
