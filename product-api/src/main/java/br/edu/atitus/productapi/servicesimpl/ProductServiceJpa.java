@@ -12,7 +12,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-
 @Service
 public class ProductServiceJpa implements ProductService {
 
@@ -30,12 +29,22 @@ public class ProductServiceJpa implements ProductService {
     @Value("${app.promotion.message:Nenhuma Promoção Ativa}")
     private String promotionMessage;
 
-    private Double getConversionRate(String source, String target) throws Exception {
-        // Buscar da currency-api a taxa de conversão entre source e target
-        if (source.equalsIgnoreCase(target)) {
-            return 1.0;
+    private ProductResponse getResponse(ProductEntity entity, String environment, String targetCurrency){
+        double convertedValue = entity.getPrice();
+        if (! entity.getCurrency().equalsIgnoreCase(targetCurrency)) {
+            //Aqui vai fazer a comunicação com o microservice currency-api
+            var currency = currencyClient.getCurrency(
+                    entity.getCurrency(), targetCurrency);
+            convertedValue = entity.getPrice() * currency.conversionRate();
+            environment += " - " + currency.environment();
         }
-        return null;
+        return ProductResponse.fromEntity(
+                entity,
+                environment,
+                promotionMessage,
+                targetCurrency,
+                convertedValue
+        );
     }
 
 
@@ -45,20 +54,7 @@ public class ProductServiceJpa implements ProductService {
                 .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
         String environment = "Product API running in port " + serverPort;
 
-        Double convertedValue = product.getPrice();
-        if (! product.getCurrency().equalsIgnoreCase(targetCurrency)) {
-            var currency = currencyClient.getCurrency(product.getCurrency(), targetCurrency);
-            convertedValue = product.getPrice() * currency.conversionRate();
-            environment += " - " + currency.environment();
-        }
-
-        return ProductResponse.fromEntity(
-                product,
-                environment,
-                promotionMessage,
-                targetCurrency,
-                convertedValue
-        );
+        return getResponse(product, environment, targetCurrency);
     }
 
     @Override
@@ -67,13 +63,7 @@ public class ProductServiceJpa implements ProductService {
         String environment = "Product API running in port " + serverPort;
 
         return products.map(
-                entity -> ProductResponse.fromEntity(
-                        entity,
-                        environment,
-                        promotionMessage,
-                        targetCurrency,
-                        0
-                )
+                entity -> getResponse(entity, environment, targetCurrency)
         );
     }
 
