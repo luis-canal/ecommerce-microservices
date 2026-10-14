@@ -1,6 +1,5 @@
 package br.edu.atitus.productapi.servicesimpl;
 
-import br.edu.atitus.productapi.clients.CurrencyClient;
 import br.edu.atitus.productapi.dtos.ProductRequest;
 import br.edu.atitus.productapi.dtos.ProductResponse;
 import br.edu.atitus.productapi.entities.ProductEntity;
@@ -16,11 +15,11 @@ import org.springframework.stereotype.Service;
 public class ProductServiceJpa implements ProductService {
 
     private final ProductRepository repository;
-    private final CurrencyClient currencyClient;
+    private final CurrencyClientService currencyClientService;
 
-    public ProductServiceJpa(ProductRepository repository, CurrencyClient currencyClient) {
+    public ProductServiceJpa(ProductRepository repository, CurrencyClientService currencyClientService) {
         this.repository = repository;
-        this.currencyClient = currencyClient;
+        this.currencyClientService = currencyClientService;
     }
 
     @Value("${server.port:8080}")
@@ -32,11 +31,17 @@ public class ProductServiceJpa implements ProductService {
     private ProductResponse getResponse(ProductEntity entity, String environment, String targetCurrency){
         double convertedValue = entity.getPrice();
         if (! entity.getCurrency().equalsIgnoreCase(targetCurrency)) {
-            //Aqui vai fazer a comunicação com o microservice currency-api
-            var currency = currencyClient.getCurrency(
-                    entity.getCurrency(), targetCurrency);
-            convertedValue = entity.getPrice() * currency.conversionRate();
-            environment += " - " + currency.environment();
+            try {
+                var currency = currencyClientService.getCurrency(
+                        entity.getCurrency(),
+                        targetCurrency
+                );
+                convertedValue = entity.getPrice() * currency.conversionRate();
+                environment += " - " + currency.environment();
+            } catch (Exception e) {
+                convertedValue = -1;
+                environment += " - ERROR: " + e.getMessage();
+            }
         }
         return ProductResponse.fromEntity(
                 entity,
