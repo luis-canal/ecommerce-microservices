@@ -24,12 +24,16 @@ public class CurrencyClientConfig {
 
     @Bean
     CurrencyClient getClient(RestClient.Builder builder) {
+        return getClient(builder, "http://currency-api");
+    }
+
+    CurrencyClient getClient(RestClient.Builder builder, String baseUrl) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(1));
         requestFactory.setReadTimeout(Duration.ofSeconds(2));
 
         RestClient restClient = builder
-            .baseUrl("http://currency-api")
+            .baseUrl(baseUrl)
             .requestFactory(requestFactory)
             .build();
         RestClientAdapter adapter = RestClientAdapter.create(restClient);
