@@ -43,6 +43,7 @@ import static org.mockito.Mockito.when;
                 "spring.cloud.consul.enabled=false",
                 "resilience4j.retry.instances.bcb-ptax.max-attempts=3",
                 "resilience4j.retry.instances.bcb-ptax.wait-duration=1ms",
+                "resilience4j.retry.instances.bcb-ptax.ignore-exceptions[0]=io.github.resilience4j.circuitbreaker.CallNotPermittedException",
                 "resilience4j.circuitbreaker.instances.bcb-ptax.sliding-window-size=100",
                 "resilience4j.circuitbreaker.instances.bcb-ptax.minimum-number-of-calls=100"
         }
