@@ -10,8 +10,10 @@ import java.time.format.DateTimeParseException;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Optional;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.Cacheable;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 
 @Service
 public class PtaxQuoteService {
@@ -19,20 +21,18 @@ public class PtaxQuoteService {
     private static final DateTimeFormatter BCB_DATE_FORMAT = DateTimeFormatter.ofPattern("MM-dd-yyyy", Locale.ROOT);
 
     private final PtaxClient ptaxClient;
-    private final LocalDate quoteDate;
 
-    public PtaxQuoteService(
-            PtaxClient ptaxClient,
-            @Value("${app.currency.bcb.quote-date}") LocalDate quoteDate
-    ) {
+    public PtaxQuoteService(PtaxClient ptaxClient) {
         this.ptaxClient = ptaxClient;
-        this.quoteDate = quoteDate;
     }
 
-    public Optional<BigDecimal> getLatestSellQuote(String currency) {
-        return getLatestSellQuote(currency, quoteDate);
-    }
-
+    @Cacheable(
+            cacheNames = "ptaxQuotes",
+            key = "#currency.toUpperCase(T(java.util.Locale).ROOT) + ':' + #date",
+            unless = "#result == null"
+    )
+    @Retry(name = "bcb-ptax")
+    @CircuitBreaker(name = "bcb-ptax")
     public Optional<BigDecimal> getLatestSellQuote(String currency, LocalDate date) {
         var response = ptaxClient.getQuotes(
                 currency.toUpperCase(Locale.ROOT),

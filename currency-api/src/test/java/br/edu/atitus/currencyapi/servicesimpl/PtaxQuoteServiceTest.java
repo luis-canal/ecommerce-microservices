@@ -31,9 +31,9 @@ class PtaxQuoteServiceTest {
                 quote("5.20", "2024-01-01 16:00:00.000"),
                 quote("0.00", "2024-01-02 16:00:00.000")
         )));
-        var service = new PtaxQuoteService(ptaxClient, date);
+        var service = new PtaxQuoteService(ptaxClient);
 
-        var result = service.getLatestSellQuote("usd");
+        var result = service.getLatestSellQuote("usd", date);
 
         assertEquals(new BigDecimal("5.10"), result.orElseThrow());
         verify(ptaxClient).getQuotes("USD", "01-02-2024");
@@ -45,9 +45,9 @@ class PtaxQuoteServiceTest {
         when(ptaxClient.getQuotes("EUR", "01-02-2024")).thenReturn(new PtaxResponse(List.of(
                 quote("5.20", "2024-01-01 16:00:00.000")
         )));
-        var service = new PtaxQuoteService(ptaxClient, date);
+        var service = new PtaxQuoteService(ptaxClient);
 
-        assertTrue(service.getLatestSellQuote("EUR").isEmpty());
+        assertTrue(service.getLatestSellQuote("EUR", date).isEmpty());
     }
 
     private PtaxQuote quote(String sell, String dateTime) {
