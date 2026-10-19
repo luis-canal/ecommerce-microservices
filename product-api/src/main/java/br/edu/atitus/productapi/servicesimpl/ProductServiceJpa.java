@@ -9,7 +9,9 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class ProductServiceJpa implements ProductService {
@@ -74,6 +76,32 @@ public class ProductServiceJpa implements ProductService {
 
     @Override
     public ProductEntity save(ProductRequest request) throws Exception {
-        return null;
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requisição inválida");
+        }
+        if (request.brand() == null || request.brand().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Marca inválida");
+        }
+        if (request.model() == null || request.model().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Modelo inválido");
+        }
+        if (request.description() == null || request.description().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Descrição inválida");
+        }
+        if (request.price() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Preço inválido");
+        }
+        if (request.currency() == null || request.currency().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Moeda inválida");
+        }
+
+        var product = new ProductEntity();
+        product.setBrand(request.brand().trim());
+        product.setModel(request.model().trim());
+        product.setDescription(request.description().trim());
+        product.setPrice(request.price());
+        product.setCurrency(request.currency().trim());
+        product.setImage(request.image() != null ? request.image().trim() : null);
+        return repository.save(product);
     }
 }
