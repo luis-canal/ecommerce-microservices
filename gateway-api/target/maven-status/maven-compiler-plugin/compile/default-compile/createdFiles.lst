@@ -1,2 +1,4 @@
 br/edu/atitus/gatewayapi/GatewayApiApplication.class
+br/edu/atitus/gatewayapi/filters/AuthFilter.class
+br/edu/atitus/gatewayapi/components/JwtUtil.class
 br/edu/atitus/gatewayapi/configs/GatewayConfig.class

@@ -1,2 +1,4 @@
 /home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/GatewayApiApplication.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/components/JwtUtil.java
 /home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/configs/GatewayConfig.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/filters/AuthFilter.java
