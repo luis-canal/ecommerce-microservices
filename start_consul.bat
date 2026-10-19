@@ -10,6 +10,12 @@ consul kv put config/product-api/spring.datasource.url "jdbc:postgresql://localh
 consul kv put config/product-api/spring.datasource.username "postgres"
 consul kv put config/product-api/spring.datasource.password "canal222"
 
+REM Configuracao do Auth API
+consul kv put config/auth-api/server.port "8200"
+consul kv put config/auth-api/spring.datasource.url "jdbc:postgresql://localhost/db_user"
+consul kv put config/auth-api/spring.datasource.username "postgres"
+consul kv put config/auth-api/spring.datasource.password "canal222"
+
 consul kv put config/product-api/app.promotion.message "Customer Week Promotion"
 consul kv put config/product-api,it/app.promotion.message "Promozione Settimana del Cliente"
 
