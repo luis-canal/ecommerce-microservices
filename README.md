@@ -39,9 +39,32 @@ consul kv put config/currency-api/server.port 8100
 consul kv put config/currency-api/spring.datasource.url jdbc:postgresql://localhost/db_currency
 consul kv put config/currency-api/spring.datasource.username postgres
 consul kv put config/currency-api/spring.datasource.password postgres
+consul kv put config/currency-api/server.port 8100
 ```
 
-O arquivo `currency-api/src/main/resources/application.properties` configura a conexão ao Consul local e importa essas propriedades. O script `start_consul.bat` contém também as chaves de configuração do `product-api`.
+O arquivo `currency-api/src/main/resources/application.properties` mantém apenas o nome da aplicação, a conexão ao Consul local e a importação da configuração. As configurações operacionais do serviço (porta, banco, BCB/PTAX, cache e resiliência) ficam no Consul. O script `start_consul.bat` cadastra essas propriedades para os dois serviços no Windows.
+
+No Linux, cadastre também no Consul as mesmas propriedades `config/currency-api/...` definidas em `start_consul.bat`; por exemplo, as configurações específicas do BCB e da resiliência:
+
+```bash
+consul kv put config/currency-api/app.currency.bcb.base-url https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata
+consul kv put config/currency-api/app.currency.bcb.quote-date 2025-10-10
+consul kv put config/currency-api/app.currency.bcb.connect-timeout 2s
+consul kv put config/currency-api/app.currency.bcb.read-timeout 5s
+consul kv put config/currency-api/spring.cache.type caffeine
+consul kv put config/currency-api/spring.cache.cache-names ptaxQuotes
+consul kv put config/currency-api/spring.cache.caffeine.spec "maximumSize=1000,expireAfterWrite=10m"
+consul kv put config/currency-api/resilience4j.retry.retry-aspect-order 100
+consul kv put config/currency-api/resilience4j.retry.instances.bcb-ptax.max-attempts 3
+consul kv put config/currency-api/resilience4j.retry.instances.bcb-ptax.wait-duration 1s
+consul kv put config/currency-api/resilience4j.retry.instances.bcb-ptax.ignore-exceptions io.github.resilience4j.circuitbreaker.CallNotPermittedException
+consul kv put config/currency-api/resilience4j.circuitbreaker.circuit-breaker-aspect-order 101
+consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.sliding-window-type COUNT_BASED
+consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.sliding-window-size 5
+consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.minimum-number-of-calls 5
+consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.failure-rate-threshold 50
+consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.wait-duration-in-open-state 100s
+```
 
 ### 2. Inicie o `currency-api`
 
