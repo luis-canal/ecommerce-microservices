@@ -18,7 +18,9 @@ public class ConfigSecurity {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/ws**", "/ws/**").authenticated()
+                    // A autenticação JWT destas rotas é validada pelo Gateway.
+                    .requestMatchers("/ws/auth/**").permitAll()
+                    .requestMatchers("/ws/**").authenticated()
                         .anyRequest().permitAll());
         return http.build();
     }

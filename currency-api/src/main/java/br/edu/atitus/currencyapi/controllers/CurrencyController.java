@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("currencies")
+@RequestMapping({"/currencies", "/ws/currencies"})
 public class CurrencyController {
 
 	private final CurrencyService service;

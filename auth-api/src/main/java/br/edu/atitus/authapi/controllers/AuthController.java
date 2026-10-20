@@ -15,10 +15,10 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.web.bind.annotation.*;
 
-import javax.naming.AuthenticationException;
+import org.springframework.security.core.AuthenticationException;
 
 @RestController
-@RequestMapping("/auth")
+@RequestMapping({"/auth", "/ws/auth"})
 public class AuthController {
 
     private final UserService userService;
