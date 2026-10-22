@@ -5,6 +5,7 @@ import br.edu.atitus.commons.web.GatewayHeadersFilter;
 import br.edu.atitus.commons.web.RequireRoleInterceptor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -34,6 +35,7 @@ public class ServletCommonsConfiguration implements WebMvcConfigurer {
     }
 
     @Bean
+    @ConditionalOnProperty(name = "internal.api-key")
     FilterRegistrationBean<GatewayHeadersFilter> gatewayHeadersFilter(
             @Value("${internal.api-key}") String key) {
         FilterRegistrationBean<GatewayHeadersFilter> registration = new FilterRegistrationBean<>();

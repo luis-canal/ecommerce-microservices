@@ -18,15 +18,17 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.AuthenticationException;
 
 @RestController
-@RequestMapping({"/auth", "/ws/auth"})
+@RequestMapping("/auth")
 public class AuthController {
 
     private final UserService userService;
     private final AuthenticationConfiguration authConfig;
+    private final JwtUtil jwtUtil;
 
-    public AuthController(UserService userService, AuthenticationConfiguration authConfig) {
+    public AuthController(UserService userService, AuthenticationConfiguration authConfig, JwtUtil jwtUtil) {
         this.userService = userService;
         this.authConfig = authConfig;
+        this.jwtUtil = jwtUtil;
     }
 
     private UserEntity convertDTO2Entity(SignupRequestDto dto) {
@@ -38,7 +40,7 @@ public class AuthController {
     @PostMapping("/signup")
     public ResponseEntity<UserEntity> signup(@RequestBody SignupRequestDto dto) throws Exception {
         var user = convertDTO2Entity(dto);
-        user.setType(UserType.Common);
+        user.setType(UserType.CLIENTE);
         userService.save(user);
         return ResponseEntity.status(HttpStatus.CREATED).body(user);
     }
@@ -47,7 +49,7 @@ public class AuthController {
         authConfig.getAuthenticationManager()
                 .authenticate(new UsernamePasswordAuthenticationToken(signin.email(), signin.password()));
         UserEntity user = (UserEntity) userService.loadUserByUsername(signin.email());
-        SigninResponseDto response = new SigninResponseDto(user, JwtUtil.generateToken(user.getEmail(), user.getId(), user.getType()));
+        SigninResponseDto response = new SigninResponseDto(user, jwtUtil.generateToken(user.getEmail(), user.getId(), user.getType()));
         return ResponseEntity.ok(response);
 
     }

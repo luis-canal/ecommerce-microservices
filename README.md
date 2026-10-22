@@ -82,6 +82,8 @@ As configurações específicas de ambiente são semeadas no Consul a partir de 
 
 No gateway, apenas `POST /auth/signup`, `POST /auth/signin`, `POST /auth/google` e `GET` de `/products/**`, `/categories/**` e `/currencies/**` são públicos. Os demais caminhos exigem JWT por padrão; `/ws/admin/**` também exige o perfil `ADMINISTRADOR`. `/internal/**` e `/actuator/**` são ocultados com 404. O token precisa ter `jti`, consultado no endpoint interno de revogação do auth-api com cache de 15 segundos; falha dessa consulta resulta em 503 (fail-closed). A documentação Swagger agregada fica disponível somente ao ativar o perfil `dev` no gateway.
 
+O auth-api mantém `POST /auth/signup` e `POST /auth/signin` públicos, oferece `/ws/auth/me` e `/ws/auth/logout`, e fornece `GET /internal/tokens/{jti}/revoked` para consulta interna. O endpoint de revogação ainda é um stub que sempre retorna `false`; a persistência de logout fica para a etapa de armazenamento de tokens. O campo de perfil foi convertido para texto pela migração V3. Para dados e tokens antigos, o repositório confirma `Admin` ordinal 0 e `Common` ordinal 1; a conversão é, portanto, 0 → `ADMINISTRADOR` e 1 → `CLIENTE`.
+
 ## Licença e repositório
 
 Projeto acadêmico: https://github.com/luis-canal/ecommerce-microservices

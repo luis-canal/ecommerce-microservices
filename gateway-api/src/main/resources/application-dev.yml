@@ -41,7 +41,10 @@ spring:
               filters:
                 - RewritePath=/docs/analytics-api/v3/api-docs, /v3/api-docs
 springdoc:
+  api-docs:
+    enabled: true
   swagger-ui:
+    enabled: true
     path: /docs
     urls:
       - name: auth-api

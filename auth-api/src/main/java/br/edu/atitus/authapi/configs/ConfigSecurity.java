@@ -17,11 +17,7 @@ public class ConfigSecurity {
     SecurityFilterChain getFilterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                    // A autenticação JWT destas rotas é validada pelo Gateway.
-                    .requestMatchers("/ws/auth/**").permitAll()
-                    .requestMatchers("/ws/**").authenticated()
-                        .anyRequest().permitAll());
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         return http.build();
     }
 

@@ -3,42 +3,33 @@ package br.edu.atitus.productapi.controllers;
 import br.edu.atitus.productapi.dtos.ProductRequest;
 import br.edu.atitus.productapi.entities.ProductEntity;
 import br.edu.atitus.productapi.services.ProductService;
-import br.edu.atitus.productapi.servicesimpl.AuthorizationService;
+import br.edu.atitus.commons.web.RequireRole;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
+// Rota legada mantida por contrato nesta fase; a migração para /ws/admin/products fica para P2.
 @RequestMapping("/ws/products")
 public class WsProductController {
 
     private final ProductService service;
-    private final AuthorizationService authService;
-
     public WsProductController(
-            @Qualifier("productServiceJpa") ProductService service,
-            AuthorizationService authService
+            @Qualifier("productServiceJpa") ProductService service
     ) {
         this.service = service;
-        this.authService = authService;
     }
 
     @PostMapping
+        @RequireRole("ADMINISTRADOR")
     public ResponseEntity<ProductEntity> postProduct(
-            @RequestBody ProductRequest dto,
-            @RequestHeader("X-User-Id") Long userId,
-            @RequestHeader("X-User-Email") String userEmail,
-            @RequestHeader("X-User-Type") Integer userType
+            @RequestBody ProductRequest dto
     ) throws Exception {
-        // Valida se o usuário é administrador.
-        authService.requireAdmin(userType);
-
         var product = service.save(dto);
         return ResponseEntity.status(201).body(product);
     }

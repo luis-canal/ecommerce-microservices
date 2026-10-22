@@ -62,6 +62,7 @@ services:
     build: ./auth-api
     environment:
       CONSUL_HOST: consul
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Defina INTERNAL_API_KEY no .env}
       DB_URL: jdbc:postgresql://postgres:5432/auth_db
       DB_USER: ecommerce
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
@@ -81,6 +82,7 @@ services:
     build: ./product-api
     environment:
       CONSUL_HOST: consul
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Defina INTERNAL_API_KEY no .env}
       DB_URL: jdbc:postgresql://postgres:5432/product_db
       DB_USER: ecommerce
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
@@ -100,6 +102,7 @@ services:
     build: ./currency-api
     environment:
       CONSUL_HOST: consul
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Defina INTERNAL_API_KEY no .env}
       DB_URL: jdbc:postgresql://postgres:5432/currency_db
       DB_USER: ecommerce
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}

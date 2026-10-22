@@ -1,61 +1,46 @@
 package br.edu.atitus.authapi.components;
 
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-
-import javax.crypto.SecretKey;
-
 import br.edu.atitus.authapi.entities.UserType;
-import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
-import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Date;
+import java.util.UUID;
+
+@Component
 public class JwtUtil {
+    private static final long EXPIRATION_TIME = 1000L * 60 * 60 * 24;
 
-    private static final String SECRET_KEY = "chaveSuperSecretaParaJWTdeExemplo!@#123"; // Chave secreta (use uma mais segura)
-    private static final long EXPIRATION_TIME = 1000 * 60 * 60 * 24; // 1000 milisegundos * 60 segundos * 60 minutos * 24 horas
+    private final SecretKey signingKey;
 
-    private static SecretKey getSigningKey() {
-        return Keys.hmacShaKeyFor(SECRET_KEY.getBytes());
-    }
-
-    public static String generateToken(String email, Long id, UserType type) {
-        Map<String, Object> claims = new HashMap<>();
-        claims.put("id", id);
-        claims.put("email", email);
-        claims.put("type", type.ordinal());
-        return Jwts.builder()
-                //.subject(email) // Define o "sub" com o email do usuário
-                .claims(claims)
-                .issuedAt(new Date()) // Data de emissão
-                .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME)) // Expiração
-                .signWith(getSigningKey()) // Assina com a chave secreta
-                .compact(); // Gera o token JWT
-    }
-
-    public static Claims validateToken(String token) {
+    public JwtUtil(@Value("${jwt.secret}") String secret) {
+        byte[] keyBytes;
         try {
-            return Jwts.parser()
-                    .verifyWith(getSigningKey()) // Define a chave para verificação
-                    .build()
-                    .parseSignedClaims(token) // Faz o parsing do token
-                    .getPayload(); // Retorna as informações do token
-//                    .getPayload().getSubject(); // Retorna as informações do token
-        } catch (Exception e) {
-            return null;
+            keyBytes = Base64.getDecoder().decode(secret);
+        } catch (IllegalArgumentException invalidBase64) {
+            keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         }
+        if (keyBytes.length < 32) {
+            throw new IllegalArgumentException("jwt.secret deve conter ao menos 256 bits");
+        }
+        this.signingKey = Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public static String getJwtFromRequest(HttpServletRequest request) {
-        String jwt = request.getHeader("Authorization");
-        if (jwt == null || jwt.isEmpty())
-            jwt = request.getHeader("authorization");
-        if (jwt != null && !jwt.isEmpty()) {
-            return jwt.substring(7);
-        }
-        return null;
+    public String generateToken(String email, Long id, UserType type) {
+        Date now = new Date();
+        return Jwts.builder()
+                .id(UUID.randomUUID().toString())
+                .claim("id", id)
+                .claim("email", email)
+                .claim("type", type.name())
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + EXPIRATION_TIME))
+                .signWith(signingKey)
+                .compact();
     }
-
 }

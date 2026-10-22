@@ -14,7 +14,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 
 @AutoConfiguration(afterName = "org.springframework.boot.amqp.autoconfigure.RabbitAutoConfiguration")
-@ConditionalOnClass(name = "org.springframework.amqp.rabbit.core.RabbitTemplate")
+@ConditionalOnClass(name = {
+    "org.springframework.amqp.rabbit.core.RabbitTemplate",
+    "com.fasterxml.jackson.databind.ObjectMapper"
+})
 @ConditionalOnBean(RabbitTemplate.class)
 public class EventCommonsConfiguration {
     @Bean

@@ -39,6 +39,8 @@ Os cabeçalhos abaixo são propagados pelo gateway para serviços internos. Serv
 
 Os valores de perfil válidos são `CLIENTE` e `ADMINISTRADOR`. Comparações devem usar os nomes do contrato, não ordinais de enum.
 
+Na migração do auth-api, os dados legados existentes são mapeados conforme a ordem que de fato está no código e no seed V2: `Admin` ordinal `0` → `ADMINISTRADOR`, e `Common` ordinal `1` → `CLIENTE`. Tokens legados seguem o mesmo mapeamento durante a compatibilidade temporária.
+
 ## Evolução de banco
 
 Migrações Flyway já aplicadas são imutáveis. Não editar V1 ou V2; toda mudança de schema deve ser criada em uma nova migração, começando em V3.
