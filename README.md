@@ -80,6 +80,8 @@ O script `infra/postgres/init.sql` é executado apenas quando o volume PostgreSQ
 
 As configurações específicas de ambiente são semeadas no Consul a partir de `infra/consul/`. O currency-api mantém no Consul a URL PTAX e a data atualmente configuradas (`2025-10-10`); os timeouts e os parâmetros de cache/resiliência ficam versionados nas configurações do serviço. Os serviços usam a rede interna do Compose e conectam-se pelos nomes `postgres`, `consul` e `rabbitmq`, não por `localhost`.
 
+No gateway, apenas `POST /auth/signup`, `POST /auth/signin`, `POST /auth/google` e `GET` de `/products/**`, `/categories/**` e `/currencies/**` são públicos. Os demais caminhos exigem JWT por padrão; `/ws/admin/**` também exige o perfil `ADMINISTRADOR`. `/internal/**` e `/actuator/**` são ocultados com 404. O token precisa ter `jti`, consultado no endpoint interno de revogação do auth-api com cache de 15 segundos; falha dessa consulta resulta em 503 (fail-closed). A documentação Swagger agregada fica disponível somente ao ativar o perfil `dev` no gateway.
+
 ## Licença e repositório
 
 Projeto acadêmico: https://github.com/luis-canal/ecommerce-microservices

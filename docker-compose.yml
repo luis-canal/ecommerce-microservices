@@ -53,6 +53,7 @@ services:
       - "8080:8080"
     environment:
       CONSUL_HOST: consul
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Defina INTERNAL_API_KEY no .env}
       SPRING_PROFILES_ACTIVE: docker
     depends_on:
       consul-seed:
