@@ -17,6 +17,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>br.edu.atitus</groupId>
+            <artifactId>commons</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
         </dependency>
