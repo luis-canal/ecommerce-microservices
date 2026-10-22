@@ -1,100 +1,67 @@
 # OMA — E-commerce Acadêmico de Artigos Gaúchos
 
-Repositório acadêmico com os microsserviços `product-api` e `currency-api`, usando Spring Boot, PostgreSQL, Flyway e HashiCorp Consul para configuração externa.
+Repositório de microsserviços Java/Spring para e-commerce. O build Maven da raiz agrega os módulos e centraliza as versões comuns.
 
-## Status atual
+## Módulos
 
-- `product-api` está presente e utiliza a porta `8000`.
-- `currency-api` está presente e foi iniciado com JDK 21 na porta `8100`.
-- O `currency-api` consulta configurações no Consul local e usa PostgreSQL no banco `db_currency`.
-- As migrações Flyway V1 e V2 do `currency-api` foram validadas e executadas.
-- O endpoint `GET /currencies?source=USD&target=BRL` foi testado e retornou HTTP 200, taxa `5.15` e o campo `environment` com a porta `8100`.
-- O script `start_consul.bat` cadastra configurações dos dois microsserviços no Consul para uso local em Windows.
-
-> O teste acima confirma uma execução local; os serviços precisam estar iniciados para que o endpoint responda. O Consul em modo de desenvolvimento mantém os dados apenas enquanto sua instância estiver ativa.
+- `auth-api` — autenticação e usuários.
+- `product-api` — catálogo de produtos.
+- `currency-api` — moedas e cotações PTAX.
+- `gateway-api` — gateway reativo para os serviços.
+- `commons` — módulo compartilhado, reservado para contratos e autoconfiguração comum.
 
 ## Requisitos
 
-- JDK 21
-- PostgreSQL em execução
-- HashiCorp Consul instalado e acessível na porta `8500`
-- Bancos PostgreSQL `db_currency` e, para executar o `product-api`, `db_product`
+- JDK 21 (todos os módulos compilam com Java 21).
+- Acesso à internet na primeira execução do Maven Wrapper para baixar Maven e dependências.
+- Para executar os serviços: PostgreSQL e Consul local, com configurações compatíveis com o serviço escolhido. A configuração atual dos serviços ainda depende de valores no Consul; o arquivo `start_consul.bat` é o exemplo de cadastro no Windows. Não use credenciais de desenvolvimento em ambientes compartilhados ou produção.
 
-O usuário, a senha e as URLs do PostgreSQL precisam corresponder às configurações cadastradas no Consul. O script `.bat` deste repositório usa o usuário `postgres` e a senha local `postgres`; ajuste-o se as credenciais do seu PostgreSQL forem diferentes. Não reutilize essas credenciais de desenvolvimento em produção.
+Os Dockerfiles dos serviços executáveis usam imagens runtime Eclipse Temurin JRE 21. Empacote o módulo antes de executar `docker build` em seu diretório.
 
-## Iniciar localmente no Linux
+## Build e testes
 
-### 1. Inicie o Consul
-
-Em um terminal, inicie o agente de desenvolvimento e deixe-o aberto:
+A partir da raiz do repositório, o wrapper delega para o Maven Wrapper do auth-api. Todos os wrappers usam Maven 3.10.0:
 
 ```bash
-consul agent -dev -client=127.0.0.1
+./mvnw clean verify
 ```
 
-Em outro terminal, cadastre as configurações do `currency-api` (altere a senha se necessário):
+Para compilar um serviço e suas dependências no reactor:
 
 ```bash
-consul kv put config/currency-api/server.port 8100
-consul kv put config/currency-api/spring.datasource.url jdbc:postgresql://localhost/db_currency
-consul kv put config/currency-api/spring.datasource.username postgres
-consul kv put config/currency-api/spring.datasource.password postgres
-consul kv put config/currency-api/server.port 8100
+./mvnw -pl currency-api -am clean verify
 ```
 
-O arquivo `currency-api/src/main/resources/application.properties` mantém apenas o nome da aplicação, a conexão ao Consul local e a importação da configuração. As configurações operacionais do serviço (porta, banco, BCB/PTAX, cache e resiliência) ficam no Consul. O script `start_consul.bat` cadastra essas propriedades para os dois serviços no Windows.
-
-No Linux, cadastre também no Consul as mesmas propriedades `config/currency-api/...` definidas em `start_consul.bat`; por exemplo, as configurações específicas do BCB e da resiliência:
+Substitua `currency-api` por `auth-api`, `product-api` ou `gateway-api` para validar outro módulo. Para iniciar, por exemplo, o currency-api depois de configurar PostgreSQL e Consul:
 
 ```bash
-consul kv put config/currency-api/app.currency.bcb.base-url https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata
-consul kv put config/currency-api/app.currency.bcb.quote-date 2025-10-10
-consul kv put config/currency-api/app.currency.bcb.connect-timeout 2s
-consul kv put config/currency-api/app.currency.bcb.read-timeout 5s
-consul kv put config/currency-api/spring.cache.type caffeine
-consul kv put config/currency-api/spring.cache.cache-names ptaxQuotes
-consul kv put config/currency-api/spring.cache.caffeine.spec "maximumSize=1000,expireAfterWrite=10m"
-consul kv put config/currency-api/resilience4j.retry.retry-aspect-order 100
-consul kv put config/currency-api/resilience4j.retry.instances.bcb-ptax.max-attempts 3
-consul kv put config/currency-api/resilience4j.retry.instances.bcb-ptax.wait-duration 1s
-consul kv put config/currency-api/resilience4j.retry.instances.bcb-ptax.ignore-exceptions io.github.resilience4j.circuitbreaker.CallNotPermittedException
-consul kv put config/currency-api/resilience4j.circuitbreaker.circuit-breaker-aspect-order 101
-consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.sliding-window-type COUNT_BASED
-consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.sliding-window-size 5
-consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.minimum-number-of-calls 5
-consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.failure-rate-threshold 50
-consul kv put config/currency-api/resilience4j.circuitbreaker.instances.bcb-ptax.wait-duration-in-open-state 100s
+./mvnw -pl currency-api spring-boot:run
 ```
 
-### 2. Inicie o `currency-api`
+Também é possível executar o wrapper dentro de cada diretório de serviço. O parent está referenciado relativamente à raiz do repositório.
 
-Com Java 21 selecionado e o PostgreSQL ativo, a partir da raiz do repositório:
+O parent usa Spring Boot 4.1.1 e Spring Cloud 2025.1.3. Essa combinação é compatível: a matriz oficial do Spring Cloud 2025.1.x suporta Spring Boot 4.1.x a partir da versão 2025.1.2. As versões compartilhadas são centralizadas no POM raiz.
 
-```bash
-cd currency-api
-./mvnw spring-boot:run
-```
+## Execução local do currency-api
 
-O Flyway aplica automaticamente as migrações em `currency-api/src/main/resources/db/migration/` ao iniciar a aplicação.
+1. Inicie PostgreSQL e crie/configure o banco `db_currency` com as credenciais utilizadas pela aplicação.
+2. Inicie Consul em modo de desenvolvimento. Em outro terminal, cadastre as propriedades do serviço conforme `start_consul.bat`; no Linux, use `consul kv put` com as chaves de `config/currency-api/`.
+3. Confirme no Consul a URL PTAX e a data de cotação configuradas. A aplicação também usa as propriedades de cache e resiliência cadastradas para `currency-api`.
+4. Rode `./mvnw -pl currency-api spring-boot:run` com JDK 21.
+5. Teste `GET http://localhost:8100/currencies?source=USD&target=BRL`.
 
-### 3. Teste o endpoint
+O Flyway aplica as migrações do próprio serviço no startup. As configurações locais existentes e os endpoints podem mudar conforme os valores cadastrados no Consul.
 
-Em outro terminal:
+## Contratos e migrações
 
-```bash
-curl -i 'http://localhost:8100/currencies?source=USD&target=BRL'
-```
+As convenções para valores monetários, datas, paginação, erros, caminhos, cabeçalhos e perfis estão em [docs/api-conventions.md](docs/api-conventions.md).
 
-Resposta esperada: HTTP 200, com `sourceCurrency`, `targetCurrency`, `conversionRate` e `environment`. A migração inicial fornece o par USD → BRL. Um par não cadastrado retorna HTTP 404.
+Migrações Flyway que já foram aplicadas são imutáveis: **não altere V1 ou V2**. Toda evolução de schema deve ser adicionada como uma nova migração, começando em V3, para evitar incompatibilidades de checksum.
 
-## Estrutura
+## Consul no Windows
 
-```text
-product-api/     Microsserviço de produtos (porta 8000)
-currency-api/    Microsserviço de moedas (porta 8100)
-start_consul.bat Inicialização do Consul e cadastro das configurações (Windows)
-```
+`start_consul.bat` contém comandos de desenvolvimento para popular o Consul. Revise as configurações e credenciais para seu ambiente antes de usá-lo; nunca reutilize valores locais em produção.
 
-## Repositório
+## Licença e repositório
 
-https://github.com/luis-canal/ecommerce-microservices
+Projeto acadêmico: https://github.com/luis-canal/ecommerce-microservices
