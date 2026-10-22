@@ -1,0 +1,118 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ecommerce
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  consul:
+    image: hashicorp/consul:1.20
+    command: agent -dev -client=0.0.0.0
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  consul-seed:
+    image: hashicorp/consul:1.20
+    depends_on:
+      consul:
+        condition: service_healthy
+    environment:
+      CONSUL_HTTP_ADDR: http://consul:8500
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET no .env}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Defina INTERNAL_API_KEY no .env}
+    volumes:
+      - ./infra/consul:/seed:ro
+    entrypoint: ["sh", "/seed/seed.sh"]
+    restart: "no"
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-ecommerce}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:?Defina RABBIT_PASSWORD no .env}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  gateway-api:
+    build: ./gateway-api
+    ports:
+      - "8080:8080"
+    environment:
+      CONSUL_HOST: consul
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      consul-seed:
+        condition: service_completed_successfully
+  auth-api:
+    build: ./auth-api
+    environment:
+      CONSUL_HOST: consul
+      DB_URL: jdbc:postgresql://postgres:5432/auth_db
+      DB_USER: ecommerce
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER:-ecommerce}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:?Defina RABBIT_PASSWORD no .env}
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      consul-seed:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+  product-api:
+    build: ./product-api
+    environment:
+      CONSUL_HOST: consul
+      DB_URL: jdbc:postgresql://postgres:5432/product_db
+      DB_USER: ecommerce
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER:-ecommerce}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:?Defina RABBIT_PASSWORD no .env}
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      consul-seed:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+  currency-api:
+    build: ./currency-api
+    environment:
+      CONSUL_HOST: consul
+      DB_URL: jdbc:postgresql://postgres:5432/currency_db
+      DB_USER: ecommerce
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+      RABBIT_HOST: rabbitmq
+      RABBIT_USER: ${RABBIT_USER:-ecommerce}
+      RABBIT_PASSWORD: ${RABBIT_PASSWORD:?Defina RABBIT_PASSWORD no .env}
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      consul-seed:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  pgdata:

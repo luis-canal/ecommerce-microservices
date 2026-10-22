@@ -1,0 +1,19 @@
+server:
+  port: 8080
+spring:
+  config:
+    import: "consul:"
+  cloud:
+    consul:
+      host: ${CONSUL_HOST:consul}
+      port: 8500
+      config:
+        format: YAML
+      discovery:
+        prefer-ip-address: true
+        instance-id: ${spring.application.name}:${random.value}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

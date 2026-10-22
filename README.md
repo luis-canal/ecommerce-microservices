@@ -8,7 +8,7 @@ Repositório de microsserviços Java/Spring para e-commerce. O build Maven da ra
 - `product-api` — catálogo de produtos.
 - `currency-api` — moedas e cotações PTAX.
 - `gateway-api` — gateway reativo para os serviços.
-- `commons` — módulo compartilhado, reservado para contratos e autoconfiguração comum.
+- `commons` — contratos compartilhados, autoconfiguração e eventos.
 
 ## Requisitos
 
@@ -61,6 +61,24 @@ Migrações Flyway que já foram aplicadas são imutáveis: **não altere V1 ou 
 ## Consul no Windows
 
 `start_consul.bat` contém comandos de desenvolvimento para popular o Consul. Revise as configurações e credenciais para seu ambiente antes de usá-lo; nunca reutilize valores locais em produção.
+
+## Infraestrutura Docker Compose
+
+Requisitos adicionais: Docker Engine com Compose v2. Na primeira utilização, copie `.env.example` para `.env` e substitua os valores de demonstração. Gere segredos locais, por exemplo, com `openssl rand -base64 48` para `JWT_SECRET` e `openssl rand -base64 32` para `INTERNAL_API_KEY`. Não versione `.env`.
+
+Para compilar os módulos e iniciar a infraestrutura e os serviços:
+
+```bash
+./build-all.sh
+```
+
+O script executa `./mvnw -DskipTests package` e, em seguida, `docker compose up --build`. Para apenas empacotar os JARs sem subir os containers, use `./build-all.sh --build-only`. Também é possível passar argumentos ao Compose, por exemplo `./build-all.sh down`.
+
+O Compose inicializa PostgreSQL 16 com os bancos `auth_db`, `product_db`, `currency_db`, `inventory_db`, `order_db` e `analytics_db`; inicia Consul com seed automático e RabbitMQ. **A única porta publicada é 8080 do gateway**. As APIs, banco, Consul e painel do RabbitMQ permanecem apenas na rede Docker.
+
+O script `infra/postgres/init.sql` é executado apenas quando o volume PostgreSQL é criado pela primeira vez. Alterações futuras nesse script não modificam um volume existente; para recriar os bancos em ambiente descartável, use `docker compose down -v` e suba novamente. Esse comando apaga os dados persistidos.
+
+As configurações específicas de ambiente são semeadas no Consul a partir de `infra/consul/`. O currency-api mantém no Consul a URL PTAX e a data atualmente configuradas (`2025-10-10`); os timeouts e os parâmetros de cache/resiliência ficam versionados nas configurações do serviço. Os serviços usam a rede interna do Compose e conectam-se pelos nomes `postgres`, `consul` e `rabbitmq`, não por `localhost`.
 
 ## Licença e repositório
 

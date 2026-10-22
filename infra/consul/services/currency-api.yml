@@ -1,0 +1,5 @@
+app:
+  currency:
+    bcb:
+      base-url: https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata
+      quote-date: "2025-10-10"
