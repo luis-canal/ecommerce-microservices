@@ -1,0 +1,61 @@
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: docs-auth-api
+              uri: lb://auth-api
+              predicates:
+                - Path=/docs/auth-api/v3/api-docs
+              filters:
+                - RewritePath=/docs/auth-api/v3/api-docs, /v3/api-docs
+            - id: docs-product-api
+              uri: lb://product-api
+              predicates:
+                - Path=/docs/product-api/v3/api-docs
+              filters:
+                - RewritePath=/docs/product-api/v3/api-docs, /v3/api-docs
+            - id: docs-currency-api
+              uri: lb://currency-api
+              predicates:
+                - Path=/docs/currency-api/v3/api-docs
+              filters:
+                - RewritePath=/docs/currency-api/v3/api-docs, /v3/api-docs
+            - id: docs-inventory-api
+              uri: lb://inventory-api
+              predicates:
+                - Path=/docs/inventory-api/v3/api-docs
+              filters:
+                - RewritePath=/docs/inventory-api/v3/api-docs, /v3/api-docs
+            - id: docs-order-api
+              uri: lb://order-api
+              predicates:
+                - Path=/docs/order-api/v3/api-docs
+              filters:
+                - RewritePath=/docs/order-api/v3/api-docs, /v3/api-docs
+            - id: docs-analytics-api
+              uri: lb://analytics-api
+              predicates:
+                - Path=/docs/analytics-api/v3/api-docs
+              filters:
+                - RewritePath=/docs/analytics-api/v3/api-docs, /v3/api-docs
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    path: /docs
+    urls:
+      - name: auth-api
+        url: /docs/auth-api/v3/api-docs
+      - name: product-api
+        url: /docs/product-api/v3/api-docs
+      - name: currency-api
+        url: /docs/currency-api/v3/api-docs
+      - name: inventory-api
+        url: /docs/inventory-api/v3/api-docs
+      - name: order-api
+        url: /docs/order-api/v3/api-docs
+      - name: analytics-api
+        url: /docs/analytics-api/v3/api-docs

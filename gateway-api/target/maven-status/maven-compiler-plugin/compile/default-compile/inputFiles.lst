@@ -1,4 +1,9 @@
 /home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/GatewayApiApplication.java
-/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/components/JwtUtil.java
 /home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/configs/GatewayConfig.java
-/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/filters/AuthFilter.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/configs/LoadBalancedWebClientConfig.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/filters/SecurityGlobalFilter.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/security/Access.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/security/AccessPolicy.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/security/JwtClaims.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/security/JwtService.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/main/java/br/edu/atitus/gatewayapi/security/RevocationClient.java

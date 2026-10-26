@@ -1,0 +1,15 @@
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/config/CommonsAutoConfiguration.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/config/EventCommonsConfiguration.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/config/ServletCommonsConfiguration.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/context/UserContext.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/context/UserContextHolder.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/events/EventEnvelope.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/events/EventPublisher.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/ApiExceptionHandler.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/BusinessRuleException.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/ConflictException.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/GatewayHeadersFilter.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/NotFoundException.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/RequireRole.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/RequireRoleInterceptor.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/commons/src/main/java/br/edu/atitus/commons/web/UnauthorizedException.java

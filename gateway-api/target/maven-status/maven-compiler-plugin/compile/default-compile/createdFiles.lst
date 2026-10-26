@@ -1,4 +1,9 @@
 br/edu/atitus/gatewayapi/GatewayApiApplication.class
-br/edu/atitus/gatewayapi/filters/AuthFilter.class
-br/edu/atitus/gatewayapi/components/JwtUtil.class
+br/edu/atitus/gatewayapi/security/JwtClaims.class
+br/edu/atitus/gatewayapi/security/AccessPolicy.class
 br/edu/atitus/gatewayapi/configs/GatewayConfig.class
+br/edu/atitus/gatewayapi/security/RevocationClient.class
+br/edu/atitus/gatewayapi/security/Access.class
+br/edu/atitus/gatewayapi/security/JwtService.class
+br/edu/atitus/gatewayapi/filters/SecurityGlobalFilter.class
+br/edu/atitus/gatewayapi/configs/LoadBalancedWebClientConfig.class

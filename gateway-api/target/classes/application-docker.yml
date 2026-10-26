@@ -1,0 +1,34 @@
+server:
+  port: 8080
+spring:
+  config:
+    import: "consul:"
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 1000
+            response-timeout: 2s
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowed-origins:
+                  - http://localhost:8081
+                  - http://localhost:19006
+                allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+                allowed-headers: '*'
+                allow-credentials: true
+    consul:
+      host: ${CONSUL_HOST:consul}
+      port: 8500
+      config:
+        format: YAML
+      discovery:
+        prefer-ip-address: true
+        instance-id: ${spring.application.name}:${random.value}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

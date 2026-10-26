@@ -1,0 +1,4 @@
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/test/java/br/edu/atitus/gatewayapi/filters/SecurityGlobalFilterTest.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/test/java/br/edu/atitus/gatewayapi/security/AccessPolicyTest.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/test/java/br/edu/atitus/gatewayapi/security/JwtServiceTest.java
+/home/suporte/ecommerce-microservices/ecommerce-microservices/gateway-api/src/test/java/br/edu/atitus/gatewayapi/security/RevocationClientTest.java

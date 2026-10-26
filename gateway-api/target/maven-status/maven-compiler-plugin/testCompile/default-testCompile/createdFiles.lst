@@ -1,0 +1,4 @@
+br/edu/atitus/gatewayapi/security/RevocationClientTest.class
+br/edu/atitus/gatewayapi/security/AccessPolicyTest.class
+br/edu/atitus/gatewayapi/security/JwtServiceTest.class
+br/edu/atitus/gatewayapi/filters/SecurityGlobalFilterTest.class

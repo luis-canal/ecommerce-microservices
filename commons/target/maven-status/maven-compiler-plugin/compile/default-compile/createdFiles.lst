@@ -1,0 +1,15 @@
+br/edu/atitus/commons/web/BusinessRuleException.class
+br/edu/atitus/commons/web/GatewayHeadersFilter.class
+br/edu/atitus/commons/web/RequireRoleInterceptor.class
+br/edu/atitus/commons/context/UserContext.class
+br/edu/atitus/commons/context/UserContextHolder.class
+br/edu/atitus/commons/web/UnauthorizedException.class
+br/edu/atitus/commons/events/EventEnvelope.class
+br/edu/atitus/commons/web/NotFoundException.class
+br/edu/atitus/commons/web/ConflictException.class
+br/edu/atitus/commons/config/EventCommonsConfiguration.class
+br/edu/atitus/commons/events/EventPublisher.class
+br/edu/atitus/commons/web/ApiExceptionHandler.class
+br/edu/atitus/commons/config/ServletCommonsConfiguration.class
+br/edu/atitus/commons/config/CommonsAutoConfiguration.class
+br/edu/atitus/commons/web/RequireRole.class

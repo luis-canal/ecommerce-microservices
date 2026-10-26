@@ -1,0 +1,3 @@
+br.edu.atitus.commons.config.CommonsAutoConfiguration
+br.edu.atitus.commons.config.ServletCommonsConfiguration
+br.edu.atitus.commons.config.EventCommonsConfiguration
