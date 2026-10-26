@@ -1,3 +1,7 @@
 app:
   promotion:
     message: Christmas Promotion
+jwt:
+  secret: __JWT_SECRET__
+internal:
+  api-key: __INTERNAL_API_KEY__

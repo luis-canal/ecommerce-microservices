@@ -1,8 +1,6 @@
 server:
   port: 8080
 spring:
-  config:
-    import: "consul:"
   cloud:
     gateway:
       server:

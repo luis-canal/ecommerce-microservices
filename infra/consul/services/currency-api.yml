@@ -3,3 +3,7 @@ app:
     bcb:
       base-url: https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata
       quote-date: "2025-10-10"
+jwt:
+  secret: __JWT_SECRET__
+internal:
+  api-key: __INTERNAL_API_KEY__
