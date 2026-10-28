@@ -2,7 +2,7 @@ server:
   port: 8000
 spring:
   config:
-    import: "consul:"
+    import: "optional:consul:"
   cloud:
     consul:
       host: ${CONSUL_HOST:consul}
@@ -26,3 +26,5 @@ management:
     web:
       exposure:
         include: health
+internal:
+  api-key: ${INTERNAL_API_KEY}

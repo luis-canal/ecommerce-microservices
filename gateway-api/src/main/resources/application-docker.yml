@@ -1,13 +1,14 @@
 server:
   port: 8080
 spring:
+  config:
+    import: "optional:consul:"
   cloud:
     gateway:
       server:
         webflux:
           httpclient:
             connect-timeout: 1000
-            response-timeout: 2s
           globalcors:
             cors-configurations:
               '[/**]':
@@ -30,3 +31,7 @@ management:
     web:
       exposure:
         include: health
+jwt:
+  secret: ${JWT_SECRET}
+internal:
+  api-key: ${INTERNAL_API_KEY}

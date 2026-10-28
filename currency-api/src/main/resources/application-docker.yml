@@ -2,7 +2,7 @@ server:
   port: 8100
 spring:
   config:
-    import: "consul:"
+    import: "optional:consul:"
   cloud:
     consul:
       host: ${CONSUL_HOST:consul}
@@ -26,3 +26,10 @@ management:
     web:
       exposure:
         include: health
+app:
+  currency:
+    bcb:
+      base-url: https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata
+      quote-date: "2025-10-10"
+internal:
+  api-key: ${INTERNAL_API_KEY}

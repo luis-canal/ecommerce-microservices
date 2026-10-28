@@ -1,6 +1,8 @@
 server:
   port: 8200
 spring:
+  config:
+    import: "optional:consul:"
   cloud:
     consul:
       host: ${CONSUL_HOST:consul}
@@ -24,3 +26,7 @@ management:
     web:
       exposure:
         include: health
+jwt:
+  secret: ${JWT_SECRET}
+internal:
+  api-key: ${INTERNAL_API_KEY}
