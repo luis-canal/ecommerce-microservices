@@ -1,4 +1,12 @@
-.idea
+
+.idea/
 *.iws
 *.iml
 *.ipr
+
+**/target/
+
+.vscode/
+
+*.log
+.env
