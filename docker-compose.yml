@@ -1,0 +1,14 @@
+
+services:
+  consul:
+    image: hashicorp/consul:latest
+
+    command: >
+      agent -dev
+      -client=0.0.0.0
+      -ui
+
+    ports:
+      - "127.0.0.1:8500:8500"
+
+    restart: unless-stopped
