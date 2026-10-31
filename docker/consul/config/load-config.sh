@@ -89,6 +89,10 @@ put "config/currency-api/spring.datasource.password" "postgres"
 put "config/currency-api/resilience4j.retry.instances.bcb-currency.max-attempts" "3"
 put "config/currency-api/resilience4j.retry.instances.bcb-currency.wait-duration" "1s"
 
+put "config/currency-api/app.currency.bcb.quote-date" "2025-10-10"
+put "config/currency-api/app.currency.bcb.connect-timeout" "2s"
+put "config/currency-api/app.currency.bcb.read-timeout" "5s"
+
 # Circuit Breaker - BCB
 put "config/currency-api/resilience4j.circuitbreaker.instances.bcb-currency.sliding-window-type" "COUNT_BASED"
 put "config/currency-api/resilience4j.circuitbreaker.instances.bcb-currency.sliding-window-size" "5"
