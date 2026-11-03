@@ -1,6 +1,7 @@
 package br.edu.atitus.gatewayapi.filters;
 
 import br.edu.atitus.gatewayapi.components.JwtUtil;
+import br.edu.atitus.gatewayapi.components.TokenRevocationClient;
 import io.jsonwebtoken.Claims;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -19,6 +20,12 @@ public class AuthFilter implements GlobalFilter, Ordered {
 
     private static final List<String> PROTECTED_ROUTES = List.of("/ws/");
     private static final List<String> USER_HEADERS = List.of("X-User-Id", "X-User-Type", "X-User-Email");
+
+    private final TokenRevocationClient tokenRevocationClient;
+
+    public AuthFilter(TokenRevocationClient tokenRevocationClient) {
+        this.tokenRevocationClient = tokenRevocationClient;
+    }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
@@ -58,11 +65,20 @@ public class AuthFilter implements GlobalFilter, Ordered {
                                     headers.set("X-User-Email", email);
                                 })
                                 .build();
-                        // Prosseguir com a requisição autenticada com cabeçalho identificando o usuário
-                        // se, e somente se, passou por todas as validações.
-                        return chain.filter(exchange.mutate()
-                                .request(authenticatedRequest)
-                                .build());
+                        // Consultar a revogação antes de encaminhar qualquer identidade autenticada.
+                        return tokenRevocationClient.isRevoked(jwt)
+                                .materialize()
+                                .flatMap(result -> {
+                                    if (!result.hasValue()) {
+                                        return reject(exchange, HttpStatus.SERVICE_UNAVAILABLE);
+                                    }
+                                    if (result.get()) {
+                                        return reject(exchange, HttpStatus.UNAUTHORIZED);
+                                    }
+                                    return chain.filter(exchange.mutate()
+                                            .request(authenticatedRequest)
+                                            .build());
+                                });
                     }
                 }
             }
@@ -70,6 +86,11 @@ public class AuthFilter implements GlobalFilter, Ordered {
 
         // Caso alguma validação falhou, retornar resposta de erro.
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+        return exchange.getResponse().setComplete();
+    }
+
+    private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status) {
+        exchange.getResponse().setStatusCode(status);
         return exchange.getResponse().setComplete();
     }
 

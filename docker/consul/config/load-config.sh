@@ -134,6 +134,7 @@ put "config/auth-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
 
 # O gateway utiliza o mesmo segredo ao consultar a validação interna do auth-api.
 put "config/gateway-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
+put "config/gateway-api/app.auth.internal-url" "http://auth-api:8200"
 
 # Banco de dados
 put "config/auth-api/spring.datasource.url" "jdbc:postgresql://auth-db:5432/db_user"
