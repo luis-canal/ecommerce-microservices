@@ -26,9 +26,9 @@ services:
     entrypoint: ["/bin/sh", "/scripts/load-config.sh"]
     volumes:
       - ./consul/config/load-config.sh:/scripts/load-config.sh:ro
+      - auth_internal_secret:/run/secrets
     environment:
       CONSUL_HTTP_ADDR: http://consul:8500
-      AUTH_INTERNAL_SECRET: ${AUTH_INTERNAL_SECRET:-}
     depends_on:
       consul:
           condition: service_healthy
@@ -200,3 +200,4 @@ volumes:
   product_data:
   currency_data:
   auth_data:
+  auth_internal_secret:

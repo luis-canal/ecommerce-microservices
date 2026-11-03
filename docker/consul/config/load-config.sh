@@ -123,9 +123,20 @@ put "config/currency-api/app.currency.bcb.read-timeout" "5s"
 # AUTH API
 # ==========================================================
 
-: "${AUTH_INTERNAL_SECRET:?Defina AUTH_INTERNAL_SECRET para carregar o segredo interno}"
+SECRET_FILE="/run/secrets/auth_internal_secret"
+if [ ! -s "$SECRET_FILE" ]; then
+    umask 077
+    generated_secret="$(consul keygen)"
+    if [ "${#generated_secret}" -lt 32 ]; then
+        echo "Não foi possível gerar um segredo interno válido" >&2
+        exit 1
+    fi
+    printf '%s' "$generated_secret" > "$SECRET_FILE"
+fi
+
+AUTH_INTERNAL_SECRET="$(cat "$SECRET_FILE")"
 if [ "${#AUTH_INTERNAL_SECRET}" -lt 32 ]; then
-    echo "AUTH_INTERNAL_SECRET deve conter pelo menos 32 caracteres" >&2
+    echo "O segredo interno persistido é inválido" >&2
     exit 1
 fi
 
