@@ -112,6 +112,12 @@ put "config/currency-api/spring.cache.caffeine.spec" "maximumSize=1000,expireAft
 put "config/currency-api/resilience4j.retry.retry-aspect-order" "100"
 put "config/currency-api/resilience4j.circuitbreaker.circuit-breaker-aspect-order" "101"
 
+put "config/currency-api/app.currency.bcb.base-url" "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata"
+put "config/currency-api/app.currency.bcb.quote-date" "2025-10-10"
+put "config/currency-api/app.currency.bcb.connect-timeout" "2s"
+put "config/currency-api/app.currency.bcb.read-timeout" "5s"
+
+
 
 # ==========================================================
 # AUTH API
