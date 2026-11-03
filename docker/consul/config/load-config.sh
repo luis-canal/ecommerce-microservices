@@ -123,7 +123,17 @@ put "config/currency-api/app.currency.bcb.read-timeout" "5s"
 # AUTH API
 # ==========================================================
 
+: "${AUTH_INTERNAL_SECRET:?Defina AUTH_INTERNAL_SECRET para carregar o segredo interno}"
+if [ "${#AUTH_INTERNAL_SECRET}" -lt 32 ]; then
+    echo "AUTH_INTERNAL_SECRET deve conter pelo menos 32 caracteres" >&2
+    exit 1
+fi
+
 put "config/auth-api/server.port" "8200"
+put "config/auth-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
+
+# O gateway utiliza o mesmo segredo ao consultar a validação interna do auth-api.
+put "config/gateway-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
 
 # Banco de dados
 put "config/auth-api/spring.datasource.url" "jdbc:postgresql://auth-db:5432/db_user"

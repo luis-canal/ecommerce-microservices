@@ -28,6 +28,7 @@ services:
       - ./consul/config/load-config.sh:/scripts/load-config.sh:ro
     environment:
       CONSUL_HTTP_ADDR: http://consul:8500
+      AUTH_INTERNAL_SECRET: ${AUTH_INTERNAL_SECRET:-}
     depends_on:
       consul:
           condition: service_healthy

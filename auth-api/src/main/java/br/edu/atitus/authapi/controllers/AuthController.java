@@ -6,8 +6,11 @@ import br.edu.atitus.authapi.dtos.SigninResponseDto;
 import br.edu.atitus.authapi.dtos.SignupRequestDto;
 import br.edu.atitus.authapi.entities.UserEntity;
 import br.edu.atitus.authapi.entities.UserType;
+import br.edu.atitus.authapi.services.TokenRevocationService;
 import br.edu.atitus.authapi.services.UserService;
+import io.jsonwebtoken.Claims;
 import org.springframework.beans.BeanUtils;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -23,10 +26,13 @@ public class AuthController {
 
     private final UserService userService;
     private final AuthenticationConfiguration authConfig;
+    private final TokenRevocationService tokenRevocationService;
 
-    public AuthController(UserService userService, AuthenticationConfiguration authConfig) {
+    public AuthController(UserService userService, AuthenticationConfiguration authConfig,
+                          TokenRevocationService tokenRevocationService) {
         this.userService = userService;
         this.authConfig = authConfig;
+        this.tokenRevocationService = tokenRevocationService;
     }
 
     private UserEntity convertDTO2Entity(SignupRequestDto dto) {
@@ -50,6 +56,27 @@ public class AuthController {
         SigninResponseDto response = new SigninResponseDto(user, JwtUtil.generateToken(user.getEmail(), user.getId(), user.getType()));
         return ResponseEntity.ok(response);
 
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        String token = authorization.substring(7).trim();
+        if (token.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        Claims claims = JwtUtil.validateToken(token);
+        if (claims == null || claims.getExpiration() == null
+                || !claims.getExpiration().toInstant().isAfter(java.time.Instant.now())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        tokenRevocationService.revoke(token, claims.getExpiration().toInstant());
+        return ResponseEntity.noContent().build();
     }
 
     @ExceptionHandler(Exception.class)
