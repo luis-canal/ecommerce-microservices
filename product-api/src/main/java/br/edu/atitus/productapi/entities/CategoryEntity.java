@@ -1,5 +1,6 @@
 package br.edu.atitus.productapi.entities;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -40,6 +41,7 @@ public class CategoryEntity {
     private Instant updatedAt;
 
     @OneToMany(mappedBy = "category")
+    @JsonIgnore
     private List<SubcategoryEntity> subcategories = new ArrayList<>();
 
     public CategoryEntity() {

@@ -3,6 +3,7 @@ package br.edu.atitus.productapi.servicesimpl;
 import br.edu.atitus.productapi.dtos.CurrencyResponse;
 import br.edu.atitus.productapi.entities.ProductEntity;
 import br.edu.atitus.productapi.repositories.ProductRepository;
+import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -17,17 +18,19 @@ import static org.mockito.Mockito.when;
 class ProductServiceJpaTest {
 
     private ProductRepository repository;
+    private SubcategoryRepository subcategoryRepository;
     private CurrencyClientService currencyClientService;
     private ProductServiceJpa productService;
 
     @BeforeEach
     void setUp() {
         repository = mock(ProductRepository.class);
+        subcategoryRepository = mock(SubcategoryRepository.class);
         currencyClientService = mock(CurrencyClientService.class);
-        productService = new ProductServiceJpa(repository, currencyClientService);
+        productService = new ProductServiceJpa(repository, currencyClientService, subcategoryRepository);
         ReflectionTestUtils.setField(productService, "serverPort", "8000");
         ReflectionTestUtils.setField(productService, "promotionMessage", "Test promotion");
-        when(repository.findById(1L)).thenReturn(Optional.of(
+        when(repository.findByIdAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(1L)).thenReturn(Optional.of(
                 new ProductEntity(1L, "Brand", "Model", "Description", "USD", 20.0, "image")
         ));
     }

@@ -6,6 +6,7 @@ public record ProductRequest(
         String description,
         String currency,
         double price,
-        String image
+        String image,
+        Long subcategoryId
 ) {
 }

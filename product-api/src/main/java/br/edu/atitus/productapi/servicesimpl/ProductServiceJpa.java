@@ -4,6 +4,7 @@ import br.edu.atitus.productapi.dtos.ProductRequest;
 import br.edu.atitus.productapi.dtos.ProductResponse;
 import br.edu.atitus.productapi.entities.ProductEntity;
 import br.edu.atitus.productapi.repositories.ProductRepository;
+import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import br.edu.atitus.productapi.services.ProductService;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -18,10 +20,16 @@ public class ProductServiceJpa implements ProductService {
 
     private final ProductRepository repository;
     private final CurrencyClientService currencyClientService;
+    private final SubcategoryRepository subcategoryRepository;
 
-    public ProductServiceJpa(ProductRepository repository, CurrencyClientService currencyClientService) {
+    public ProductServiceJpa(
+            ProductRepository repository,
+            CurrencyClientService currencyClientService,
+            SubcategoryRepository subcategoryRepository
+    ) {
         this.repository = repository;
         this.currencyClientService = currencyClientService;
+        this.subcategoryRepository = subcategoryRepository;
     }
 
     @Value("${server.port:8080}")
@@ -56,8 +64,9 @@ public class ProductServiceJpa implements ProductService {
 
 
     @Override
+    @Transactional(readOnly = true)
     public ProductResponse findById(Long id, String targetCurrency) throws Exception {
-        var product = repository.findById(id)
+        var product = repository.findByIdAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(id)
                 .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
         String environment = "Product API running in port " + serverPort;
 
@@ -65,8 +74,9 @@ public class ProductServiceJpa implements ProductService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<ProductResponse> findAll(Pageable pageable, String targetCurrency) throws Exception {
-        var products = repository.findAll(pageable);
+        var products = repository.findAllBySubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(pageable);
         String environment = "Product API running in port " + serverPort;
 
         return products.map(
@@ -75,6 +85,7 @@ public class ProductServiceJpa implements ProductService {
     }
 
     @Override
+    @Transactional
     public ProductEntity save(ProductRequest request) throws Exception {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requisição inválida");
@@ -94,6 +105,14 @@ public class ProductServiceJpa implements ProductService {
         if (request.currency() == null || request.currency().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Moeda inválida");
         }
+        if (request.subcategoryId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Subcategoria obrigatória");
+        }
+        var subcategory = subcategoryRepository.findByIdAndActiveTrueAndCategory_ActiveTrue(request.subcategoryId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "A subcategoria informada não existe ou está inativa"
+                ));
 
         var product = new ProductEntity();
         product.setBrand(request.brand().trim());
@@ -102,6 +121,7 @@ public class ProductServiceJpa implements ProductService {
         product.setPrice(request.price());
         product.setCurrency(request.currency().trim());
         product.setImage(request.image() != null ? request.image().trim() : null);
+        product.setSubcategory(subcategory);
         return repository.save(product);
     }
 }
