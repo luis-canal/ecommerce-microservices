@@ -16,6 +16,10 @@ public class ProductEntity {
     private double price;
     private String image;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "subcategory_id", nullable = false)
+    private SubcategoryEntity subcategory;
+
     public ProductEntity() {
     }
 
@@ -83,5 +87,13 @@ public class ProductEntity {
 
     public void setImage(String image) {
         this.image = image;
+    }
+
+    public SubcategoryEntity getSubcategory() {
+        return subcategory;
+    }
+
+    public void setSubcategory(SubcategoryEntity subcategory) {
+        this.subcategory = subcategory;
     }
 }
