@@ -123,6 +123,22 @@ Autentica por e-mail e senha e emite um JWT. Use esta rota também para autentic
 
 **Não existe endpoint administrativo separado.** Use `POST /auth/signin` com as credenciais de uma conta cujo tipo seja `Admin`. A resposta tem o mesmo formato do login comum, mas `user.type` será `"Admin"`. Somente administradores podem executar as operações `/ws/products`, `/ws/categories` e `/ws/subcategories`.
 
+**Conta criada pela migração inicial**
+
+| Campo | Valor |
+|---|---|
+| E-mail | `admin@admin.dev` |
+| Senha | teste |
+
+Request:
+
+```json
+{
+  "email": "admin@admin.dev",
+  "password": "teste"
+}
+```
+
 Para falha de autenticação, consulte os erros de [login](#login-de-usuário). Um usuário válido que não seja administrador recebe `403 Forbidden` ao tentar uma operação administrativa.
 
 ### Logout e invalidação do token
@@ -201,9 +217,9 @@ Retorna uma página Spring Data. `price` é o valor original e `convertedPrice` 
       "price": 75.0,
       "image": "https://example.com/cuia.jpg",
       "subcategoryId": 7,
-      "subcategoryName": "Chimarrão",
+      "subcategoryName": "Porongo",
       "categoryId": 2,
-      "categoryName": "Acessórios",
+      "categoryName": "Cuias",
       "productType": "SINGLE_UNIT",
       "active": true,
       "environment": "Product API running in port 8080",
@@ -271,9 +287,9 @@ Mesmo formato do item em [listar produtos](#listar-pesquisar-filtrar-e-ordenar-p
   "price": 75.0,
   "image": "https://example.com/cuia.jpg",
   "subcategoryId": 7,
-  "subcategoryName": "Chimarrão",
+  "subcategoryName": "Porongo",
   "categoryId": 2,
-  "categoryName": "Acessórios",
+  "categoryName": "Cuias",
   "productType": "SINGLE_UNIT",
   "active": true,
   "environment": "Product API running in port 8080",
@@ -349,14 +365,14 @@ Retorna a entidade de produto criada, incluindo a associação `subcategory`.
     "id": 7,
     "category": {
       "id": 2,
-      "name": "Acessórios",
-      "slug": "acessorios",
+      "name": "Cuias",
+      "slug": "cuias",
       "active": true,
       "createdAt": "2026-01-15T12:00:00Z",
       "updatedAt": "2026-01-15T12:00:00Z"
     },
-    "name": "Chimarrão",
-    "slug": "chimarrao",
+    "name": "Porongo",
+    "slug": "porongo",
     "active": true,
     "createdAt": "2026-01-15T12:00:00Z",
     "updatedAt": "2026-01-15T12:00:00Z"
@@ -464,6 +480,22 @@ Retorna a entidade do produto com `active` atualizado. Exemplo: o mesmo objeto d
 
 ## Categorias e subcategorias
 
+### Dados pré-cadastrados
+
+Na migração inicial do catálogo, são inseridas as seguintes categorias e subcategorias. Os nomes são os valores enviados pela API; os slugs são gerados no seed. As entidades começam ativas.
+
+| Categoria | Slug da categoria | Subcategorias pré-cadastradas (slug) |
+|---|---|---|
+| Erva-mate | `erva-mate` | Nativa (`nativa`), Para tereré (`para-terere`), Com sabores (`com-sabores`), Moída grossa (`moida-grossa`), Pura folha (`pura-folha`), Tradicional (`tradicional`) |
+| Cuias | `cuias` | Porongo (`porongo`), Madeira (`madeira`), Tereré (`terere`) |
+| Bombas | `bombas` | Aço comum (`aco-comum`), Aço inoxidável (`aco-inoxidavel`), Prata (`prata`), De alpaca (`de-alpaca`) |
+| Garrafa térmica | `garrafa-termica` | Termolar (`termolar`), Mokha (`mokha`) |
+| Mateiras | `mateiras` | Abertas (`abertas`), Fechadas (`fechadas`) |
+| Porta erva-mate | `porta-erva-mate` | Couro (`couro`), Lata (`lata`), Porongo (`porongo`), Madeira (`madeira`) |
+| Acessórios para chimarrão | `acessorios-para-chimarrao` | Suportes para cuia (`suportes-para-cuia`), Tapa erva (`tapa-erva`), Vira-mate (`vira-mate`) |
+
+Os IDs são gerados pelo banco e devem ser obtidos em tempo de execução: consulte `GET /categories` e, para cada `id`, `GET /categories/{id}/subcategories`. Use os IDs retornados nessas consultas ao filtrar produtos ou criar/editar produtos e subcategorias; não derive IDs da ordem da tabela acima.
+
 ### Listar categorias
 
 **`GET /categories`**
@@ -482,8 +514,8 @@ Lista categorias ativas, ordenadas por nome.
 [
   {
     "id": 2,
-    "name": "Acessórios",
-    "slug": "acessorios",
+    "name": "Cuias",
+    "slug": "cuias",
     "active": true,
     "createdAt": "2026-01-15T12:00:00Z",
     "updatedAt": "2026-01-15T12:00:00Z"
@@ -520,9 +552,9 @@ Lista subcategorias ativas, ordenadas por nome. Se a categoria não existir ou e
   {
     "id": 7,
     "categoryId": 2,
-    "categoryName": "Acessórios",
-    "name": "Chimarrão",
-    "slug": "chimarrao",
+    "categoryName": "Cuias",
+    "name": "Porongo",
+    "slug": "porongo",
     "active": true,
     "createdAt": "2026-01-15T12:00:00Z",
     "updatedAt": "2026-01-15T12:00:00Z"
@@ -556,7 +588,7 @@ Cria uma categoria ativa. O `slug` é gerado a partir do nome.
 
 ```json
 {
-  "name": "Acessórios"
+  "name": "Utensílios de mate"
 }
 ```
 
@@ -565,8 +597,8 @@ Cria uma categoria ativa. O `slug` é gerado a partir do nome.
 ```json
 {
   "id": 2,
-  "name": "Acessórios",
-  "slug": "acessorios",
+  "name": "Utensílios de mate",
+  "slug": "utensilios-de-mate",
   "active": true,
   "createdAt": "2026-01-15T12:00:00Z",
   "updatedAt": "2026-01-15T12:00:00Z"
@@ -601,7 +633,7 @@ Atualiza nome e slug de uma categoria existente.
 
 ```json
 {
-  "name": "Acessórios para chimarrão"
+  "name": "Utensílios para chimarrão"
 }
 ```
 
@@ -675,7 +707,7 @@ Cria uma subcategoria ativa associada a uma categoria existente e ativa. O `slug
 ```json
 {
   "categoryId": 2,
-  "name": "Chimarrão"
+  "name": "Cuia personalizada"
 }
 ```
 
@@ -685,9 +717,9 @@ Cria uma subcategoria ativa associada a uma categoria existente e ativa. O `slug
 {
   "id": 7,
   "categoryId": 2,
-  "categoryName": "Acessórios",
-  "name": "Chimarrão",
-  "slug": "chimarrao",
+  "categoryName": "Cuias",
+  "name": "Cuia personalizada",
+  "slug": "cuia-personalizada",
   "active": true,
   "createdAt": "2026-01-15T12:00:00Z",
   "updatedAt": "2026-01-15T12:00:00Z"
@@ -724,7 +756,7 @@ Atualiza nome e categoria da subcategoria. A categoria de destino precisa estar 
 ```json
 {
   "categoryId": 2,
-  "name": "Chimarrão e mate"
+  "name": "Porongo selecionado"
 }
 ```
 
