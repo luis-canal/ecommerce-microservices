@@ -19,7 +19,10 @@ SELECT
     seeds.price,
     seeds.image,
     subcategories.id,
-    'MULTI_UNIT',
+    CASE
+        WHEN categories.slug = 'cuias' THEN 'SINGLE_UNIT'
+        ELSE 'MULTI_UNIT'
+    END,
     TRUE
 FROM (
     VALUES
