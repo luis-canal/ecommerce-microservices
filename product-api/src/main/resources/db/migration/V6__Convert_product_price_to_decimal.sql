@@ -1,0 +1,3 @@
+ALTER TABLE tb_product
+    ALTER COLUMN price TYPE NUMERIC(19, 2)
+    USING ROUND(price::NUMERIC, 2);

@@ -104,7 +104,7 @@ Responsável pela consulta e pelo ciclo de vida dos produtos do catálogo.
 
 | Método | Endpoint | Descrição |
 |---|---|---|
-| GET | `/products` | Lista produtos com paginação |
+| GET | `/products` | Pesquisa, filtra e ordena produtos com paginação |
 | GET | `/products/{id}` | Consulta produto por ID |
 | POST | `/ws/products` | Cadastra produto (administrador) |
 | PUT | `/ws/products/{id}` | Edita dados permitidos (administrador) |
@@ -116,9 +116,17 @@ Na migração para os novos campos, produtos existentes recebem `name` a partir 
 
 A listagem utiliza, por padrão, página 0, tamanho 10 e ordenação por descrição.
 
-É possível solicitar a conversão do preço utilizando o parâmetro `targetCurrency`.
+O endpoint aceita os filtros combináveis `name` (trecho do nome, sem diferenciar maiúsculas/minúsculas), `categoryId`, `subcategoryId`, `minPrice` e `maxPrice`. IDs de categoria e subcategoria são `Long`. Os limites de preço são não negativos, usam `BigDecimal` e são sempre interpretados em BRL; para produtos cadastrados em outra moeda, os valores são convertidos para BRL antes da filtragem ou ordenação. Se uma conversão necessária falhar, a API retorna erro em vez de resultados incompletos. Os preços são persistidos com duas casas decimais.
+
+A ordenação pode ser feita por `price` ou `name`, em ordem `asc` ou `desc`; nome é comparado sem distinção entre maiúsculas/minúsculas. A paginação aceita `page` e `size`, com padrão página 0 e tamanho 10. `targetCurrency` define a moeda dos preços apresentados na resposta e, quando omitido, usa BRL.
 
 Exemplo:
+
+```http
+GET /products?name=cuia&categoryId=2&subcategoryId=7&minPrice=50&maxPrice=100&sort=price,asc&page=0&size=10
+```
+
+Para consultar um produto específico com o preço convertido:
 
 ```http
 GET /products/1?targetCurrency=USD

@@ -3,6 +3,8 @@ package br.edu.atitus.productapi.entities;
 import br.edu.atitus.productapi.enums.ProductType;
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
+
 @Entity
 @Table(name = "tb_product")
 public class ProductEntity {
@@ -17,7 +19,8 @@ public class ProductEntity {
     private String model;
     private String description;
     private String currency;
-    private double price;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal price;
     private String image;
 
     @Enumerated(EnumType.STRING)
@@ -82,11 +85,11 @@ public class ProductEntity {
         this.currency = currency;
     }
 
-    public double getPrice() {
+    public BigDecimal getPrice() {
         return price;
     }
 
-    public void setPrice(double price) {
+    public void setPrice(BigDecimal price) {
         this.price = price;
     }
 

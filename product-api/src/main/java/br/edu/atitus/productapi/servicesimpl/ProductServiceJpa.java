@@ -2,6 +2,7 @@ package br.edu.atitus.productapi.servicesimpl;
 
 import br.edu.atitus.productapi.dtos.ProductRequest;
 import br.edu.atitus.productapi.dtos.ProductResponse;
+import br.edu.atitus.productapi.dtos.ProductSearchCriteria;
 import br.edu.atitus.productapi.dtos.ProductStatusRequest;
 import br.edu.atitus.productapi.dtos.ProductUpdateRequest;
 import br.edu.atitus.productapi.entities.ProductEntity;
@@ -13,10 +14,18 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 
 @Service
 public class ProductServiceJpa implements ProductService {
@@ -41,18 +50,20 @@ public class ProductServiceJpa implements ProductService {
     @Value("${app.promotion.message:Nenhuma Promoção Ativa}")
     private String promotionMessage;
 
-    private ProductResponse getResponse(ProductEntity entity, String environment, String targetCurrency){
-        double convertedValue = entity.getPrice();
+    private ProductResponse getResponse(ProductEntity entity, String environment, String targetCurrency) {
+        BigDecimal convertedValue = entity.getPrice();
         if (! entity.getCurrency().equalsIgnoreCase(targetCurrency)) {
             try {
                 var currency = currencyClientService.getCurrency(
                         entity.getCurrency(),
                         targetCurrency
                 );
-                convertedValue = entity.getPrice() * currency.conversionRate();
+                convertedValue = entity.getPrice()
+                        .multiply(BigDecimal.valueOf(currency.conversionRate()))
+                        .setScale(2, RoundingMode.HALF_UP);
                 environment += " - " + currency.environment();
             } catch (Exception e) {
-                convertedValue = -1;
+                convertedValue = BigDecimal.valueOf(-1);
                 environment += " - ERROR: " + e.getMessage();
             }
         }
@@ -77,13 +88,25 @@ public class ProductServiceJpa implements ProductService {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public Page<ProductResponse> findAll(Pageable pageable, String targetCurrency) throws Exception {
-        var products = repository.findAllByActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(pageable);
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Page<ProductResponse> findAll(
+            ProductSearchCriteria criteria,
+            Pageable pageable,
+            String targetCurrency
+    ) {
+        ProductSearchCriteria validatedCriteria = validateCriteria(criteria);
+        validateSort(pageable.getSort());
+        String responseCurrency = targetCurrency == null || targetCurrency.isBlank()
+                ? "BRL"
+                : targetCurrency.trim();
+        Map<String, BigDecimal> conversionRatesToBrl = needsPriceConversion(validatedCriteria, pageable)
+                ? getConversionRatesToBrl(repository.findCurrencies(validatedCriteria))
+                : Map.of();
+        var products = repository.search(validatedCriteria, pageable, conversionRatesToBrl);
         String environment = "Product API running in port " + serverPort;
 
         return products.map(
-                entity -> getResponse(entity, environment, targetCurrency)
+                entity -> getResponse(entity, environment, responseCurrency)
         );
     }
 
@@ -93,7 +116,7 @@ public class ProductServiceJpa implements ProductService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requisição inválida");
         }
-        validateFields(
+        BigDecimal price = validateFields(
                 request.name(),
                 request.brand(),
                 request.model(),
@@ -111,7 +134,7 @@ public class ProductServiceJpa implements ProductService {
         product.setBrand(request.brand().trim());
         product.setModel(request.model().trim());
         product.setDescription(request.description().trim());
-        product.setPrice(request.price());
+        product.setPrice(price);
         product.setCurrency(request.currency().trim());
         product.setImage(request.image() != null ? request.image().trim() : null);
         product.setSubcategory(subcategory);
@@ -128,7 +151,7 @@ public class ProductServiceJpa implements ProductService {
         if (request == null) {
             throw badRequest("Requisição inválida");
         }
-        validateFields(
+        BigDecimal price = validateFields(
                 request.name(),
                 request.brand(),
                 request.model(),
@@ -142,7 +165,7 @@ public class ProductServiceJpa implements ProductService {
         product.setBrand(request.brand().trim());
         product.setModel(request.model().trim());
         product.setDescription(request.description().trim());
-        product.setPrice(request.price());
+        product.setPrice(price);
         product.setCurrency(request.currency().trim());
         product.setImage(request.image() != null ? request.image().trim() : null);
         product.setSubcategory(subcategory);
@@ -168,13 +191,13 @@ public class ProductServiceJpa implements ProductService {
         return repository.save(product);
     }
 
-    private void validateFields(
+    private BigDecimal validateFields(
             String name,
             String brand,
             String model,
             String description,
             String currency,
-            double price
+            BigDecimal price
     ) {
         if (name == null || name.isBlank()) {
             throw badRequest("Nome inválido");
@@ -188,12 +211,96 @@ public class ProductServiceJpa implements ProductService {
         if (description == null || description.isBlank()) {
             throw badRequest("Descrição inválida");
         }
-        if (!Double.isFinite(price) || price <= 0) {
+        if (price == null || price.signum() <= 0) {
             throw badRequest("Preço inválido");
+        }
+        BigDecimal normalizedPrice = price.setScale(2, RoundingMode.HALF_UP);
+        if (normalizedPrice.signum() <= 0) {
+            throw badRequest("Preço inválido");
+        }
+        if (normalizedPrice.precision() > 19) {
+            throw badRequest("Preço excede o limite permitido");
         }
         if (currency == null || currency.isBlank()) {
             throw badRequest("Moeda inválida");
         }
+        return normalizedPrice;
+    }
+
+    private ProductSearchCriteria validateCriteria(ProductSearchCriteria criteria) {
+        if (criteria == null) {
+            return new ProductSearchCriteria(null, null, null, null, null);
+        }
+        if (criteria.minPrice() != null && criteria.minPrice().signum() < 0) {
+            throw badRequest("O preço mínimo não pode ser negativo");
+        }
+        if (criteria.maxPrice() != null && criteria.maxPrice().signum() < 0) {
+            throw badRequest("O preço máximo não pode ser negativo");
+        }
+        if (criteria.minPrice() != null && criteria.maxPrice() != null
+                && criteria.minPrice().compareTo(criteria.maxPrice()) > 0) {
+            throw badRequest("O preço mínimo não pode ser superior ao preço máximo");
+        }
+        String normalizedName = criteria.name() == null || criteria.name().isBlank()
+                ? null
+                : criteria.name().trim();
+        return new ProductSearchCriteria(
+                normalizedName,
+                criteria.categoryId(),
+                criteria.subcategoryId(),
+                criteria.minPrice(),
+                criteria.maxPrice()
+        );
+    }
+
+    private void validateSort(Sort sort) {
+        for (Sort.Order order : sort) {
+            if (!order.getProperty().equals("name")
+                    && !order.getProperty().equals("price")
+                    && !order.getProperty().equals("description")) {
+                throw badRequest("Ordenação não suportada: " + order.getProperty());
+            }
+        }
+    }
+
+    private boolean needsPriceConversion(ProductSearchCriteria criteria, Pageable pageable) {
+        return criteria.minPrice() != null
+                || criteria.maxPrice() != null
+                || pageable.getSort().stream().anyMatch(order -> order.getProperty().equals("price"));
+    }
+
+    private Map<String, BigDecimal> getConversionRatesToBrl(Iterable<String> currencies) {
+        Map<String, BigDecimal> rates = new HashMap<>();
+        rates.put("BRL", BigDecimal.ONE);
+        for (String currencyValue : currencies) {
+            if (currencyValue == null || currencyValue.isBlank()) {
+                throw conversionUnavailable();
+            }
+            String currency = currencyValue.toUpperCase(Locale.ROOT);
+            if (currency.equals("BRL") || rates.containsKey(currency)) {
+                continue;
+            }
+            try {
+                var response = currencyClientService.getCurrency(currency, "BRL");
+                if (response == null || response.conversionRate() == null
+                        || response.conversionRate() <= 0 || !Double.isFinite(response.conversionRate())) {
+                    throw conversionUnavailable();
+                }
+                rates.put(currency, BigDecimal.valueOf(response.conversionRate()));
+            } catch (ResponseStatusException exception) {
+                throw exception;
+            } catch (Exception exception) {
+                throw conversionUnavailable();
+            }
+        }
+        return Map.copyOf(rates);
+    }
+
+    private ResponseStatusException conversionUnavailable() {
+        return new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Não foi possível converter os preços para BRL"
+        );
     }
 
     private SubcategoryEntity findActiveSubcategory(Long subcategoryId) {

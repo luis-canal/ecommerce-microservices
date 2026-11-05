@@ -3,6 +3,8 @@ package br.edu.atitus.productapi.dtos;
 import br.edu.atitus.productapi.entities.ProductEntity;
 import br.edu.atitus.productapi.enums.ProductType;
 
+import java.math.BigDecimal;
+
 public record ProductResponse(
         Long id,
         String name,
@@ -10,7 +12,7 @@ public record ProductResponse(
         String model,
         String description,
         String currency,
-        double price,
+        BigDecimal price,
         String image,
         Long subcategoryId,
         String subcategoryName,
@@ -22,9 +24,9 @@ public record ProductResponse(
         String environment,
         String promotionMessage,
         String targetCurrency,
-        double convertedPrice
+        BigDecimal convertedPrice
 ) {
-    public static ProductResponse fromEntity(ProductEntity entity, String environment, String promotionMessage, String targetCurrency, double convertedPrice) {
+    public static ProductResponse fromEntity(ProductEntity entity, String environment, String promotionMessage, String targetCurrency, BigDecimal convertedPrice) {
         var subcategory = entity.getSubcategory();
         var category = subcategory == null ? null : subcategory.getCategory();
         return new ProductResponse(

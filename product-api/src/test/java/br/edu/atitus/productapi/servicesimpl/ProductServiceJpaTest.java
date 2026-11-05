@@ -2,6 +2,7 @@ package br.edu.atitus.productapi.servicesimpl;
 
 import br.edu.atitus.productapi.dtos.CurrencyResponse;
 import br.edu.atitus.productapi.dtos.ProductRequest;
+import br.edu.atitus.productapi.dtos.ProductSearchCriteria;
 import br.edu.atitus.productapi.dtos.ProductStatusRequest;
 import br.edu.atitus.productapi.dtos.ProductUpdateRequest;
 import br.edu.atitus.productapi.entities.CategoryEntity;
@@ -14,10 +15,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.math.BigDecimal;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,7 +63,7 @@ class ProductServiceJpaTest {
         assertEquals("Model", response.model());
         assertEquals("Description", response.description());
         assertEquals(ProductType.SINGLE_UNIT, response.productType());
-        assertEquals(100.0, response.convertedPrice());
+        assertEquals(new BigDecimal("100.00"), response.convertedPrice());
         assertTrue(response.environment().contains("currency-api"));
     }
 
@@ -71,7 +74,7 @@ class ProductServiceJpaTest {
 
         var response = productService.findById(1L, "BRL");
 
-        assertEquals(-1.0, response.convertedPrice());
+        assertEquals(BigDecimal.valueOf(-1), response.convertedPrice());
         assertTrue(response.environment().contains("ERROR: currency unavailable"));
     }
 
@@ -85,12 +88,13 @@ class ProductServiceJpaTest {
 
     @Test
     void listsProductsUsingActiveSubcategoryAndCategoryFilter() throws Exception {
-        when(repository.findAllByActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(any()))
-                .thenReturn(new PageImpl<>(List.of()));
+        var criteria = new ProductSearchCriteria(null, null, null, null, null);
+        var pageable = PageRequest.of(0, 10, Sort.by("description"));
+        when(repository.search(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
 
-        productService.findAll(PageRequest.of(0, 10), "BRL");
+        productService.findAll(criteria, pageable, "BRL");
 
-        verify(repository).findAllByActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(any());
+        verify(repository).search(criteria, pageable, java.util.Map.of());
     }
 
     @Test
@@ -98,7 +102,8 @@ class ProductServiceJpaTest {
         var exception = assertThrows(
                 ResponseStatusException.class,
                 () -> productService.save(new ProductRequest(
-                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, null, ProductType.MULTI_UNIT
+                        "Name", "Brand", "Model", "Description", "BRL", new BigDecimal("10.00"),
+                        null, null, ProductType.MULTI_UNIT
                 ))
         );
 
@@ -115,7 +120,8 @@ class ProductServiceJpaTest {
         var exception = assertThrows(
                 ResponseStatusException.class,
                 () -> productService.save(new ProductRequest(
-                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, ProductType.MULTI_UNIT
+                        "Name", "Brand", "Model", "Description", "BRL", new BigDecimal("10.00"),
+                        null, 4L, ProductType.MULTI_UNIT
                 ))
         );
 
@@ -139,7 +145,8 @@ class ProductServiceJpaTest {
         when(repository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         var product = productService.save(new ProductRequest(
-                "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, ProductType.SINGLE_UNIT
+                "Name", "Brand", "Model", "Description", "BRL", new BigDecimal("10.00"),
+                null, 4L, ProductType.SINGLE_UNIT
         ));
 
         assertEquals("Name", product.getName());
@@ -153,19 +160,44 @@ class ProductServiceJpaTest {
         var noName = assertThrows(
                 ResponseStatusException.class,
                 () -> productService.save(new ProductRequest(
-                        " ", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, ProductType.MULTI_UNIT
+                        " ", "Brand", "Model", "Description", "BRL", new BigDecimal("10.00"),
+                        null, 4L, ProductType.MULTI_UNIT
                 ))
         );
         var noType = assertThrows(
                 ResponseStatusException.class,
                 () -> productService.save(new ProductRequest(
-                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, null
+                        "Name", "Brand", "Model", "Description", "BRL", new BigDecimal("10.00"),
+                        null, 4L, null
                 ))
         );
 
         assertEquals(400, noName.getStatusCode().value());
         assertEquals(400, noType.getStatusCode().value());
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    void roundsStoredPricesToTwoDecimalPlacesAndRejectsValuesRoundedToZero() throws Exception {
+        var subcategory = activeSubcategory();
+        when(subcategoryRepository.findByIdAndActiveTrueAndCategory_ActiveTrue(4L))
+                .thenReturn(Optional.of(subcategory));
+        when(repository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = productService.save(new ProductRequest(
+                "Name", "Brand", "Model", "Description", "BRL", new BigDecimal("10.005"),
+                null, 4L, ProductType.MULTI_UNIT
+        ));
+        var invalid = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.save(new ProductRequest(
+                        "Name", "Brand", "Model", "Description", "BRL", new BigDecimal("0.004"),
+                        null, 4L, ProductType.MULTI_UNIT
+                ))
+        );
+
+        assertEquals(new BigDecimal("10.01"), created.getPrice());
+        assertEquals(400, invalid.getStatusCode().value());
     }
 
     @Test
@@ -180,7 +212,7 @@ class ProductServiceJpaTest {
 
         var updated = productService.update(1L, new ProductUpdateRequest(
                 "Updated name", "Updated brand", "Updated model", "Updated description",
-                "EUR", 15.0, "new-image", 5L
+                "EUR", new BigDecimal("15.00"), "new-image", 5L
         ));
 
         assertEquals(1L, updated.getId());
@@ -199,7 +231,7 @@ class ProductServiceJpaTest {
         var exception = assertThrows(
                 ResponseStatusException.class,
                 () -> productService.update(1L, new ProductUpdateRequest(
-                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 5L
+                        "Name", "Brand", "Model", "Description", "BRL", new BigDecimal("10.00"), null, 5L
                 ))
         );
 
@@ -270,7 +302,7 @@ class ProductServiceJpaTest {
         product.setModel("Model");
         product.setDescription("Description");
         product.setCurrency("USD");
-        product.setPrice(20.0);
+        product.setPrice(new BigDecimal("20.00"));
         product.setImage("image");
         product.setProductType(ProductType.SINGLE_UNIT);
         product.setSubcategory(activeSubcategory());
@@ -284,5 +316,84 @@ class ProductServiceJpaTest {
         subcategory.setActive(true);
         subcategory.setCategory(category);
         return subcategory;
+    }
+
+    @Test
+    void appliesAllSearchFiltersAndConvertsCandidateCurrenciesToBrl() {
+        var criteria = new ProductSearchCriteria(
+                "cuia",
+                3L,
+                7L,
+                new BigDecimal("50"),
+                new BigDecimal("100")
+        );
+        var pageable = PageRequest.of(0, 5, Sort.by(Sort.Direction.ASC, "price"));
+        when(repository.findCurrencies(criteria)).thenReturn(List.of("BRL", "USD"));
+        when(currencyClientService.getCurrency("USD", "BRL"))
+                .thenReturn(new CurrencyResponse("USD", "BRL", 5.0, "currency-api"));
+        when(repository.search(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        productService.findAll(criteria, pageable, "BRL");
+
+        verify(repository).search(
+                criteria,
+                pageable,
+                java.util.Map.of("BRL", BigDecimal.ONE, "USD", BigDecimal.valueOf(5.0))
+        );
+    }
+
+    @Test
+    void rejectsNegativePriceBoundsAndInvertedRange() {
+        var negative = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.findAll(
+                        new ProductSearchCriteria(null, null, null, new BigDecimal("-0.01"), null),
+                        PageRequest.of(0, 10),
+                        "BRL"
+                )
+        );
+        var inverted = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.findAll(
+                        new ProductSearchCriteria(null, null, null, new BigDecimal("150"), new BigDecimal("50")),
+                        PageRequest.of(0, 10),
+                        "BRL"
+                )
+        );
+
+        assertEquals(400, negative.getStatusCode().value());
+        assertEquals(400, inverted.getStatusCode().value());
+        verify(repository, never()).search(any(), any(), any());
+    }
+
+    @Test
+    void failsPriceSearchWhenCurrencyConversionIsUnavailable() {
+        var criteria = new ProductSearchCriteria(null, null, null, new BigDecimal("10"), null);
+        when(repository.findCurrencies(criteria)).thenReturn(List.of("USD"));
+        when(currencyClientService.getCurrency("USD", "BRL"))
+                .thenThrow(new IllegalStateException("currency unavailable"));
+
+        var exception = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.findAll(criteria, PageRequest.of(0, 10), "BRL")
+        );
+
+        assertEquals(503, exception.getStatusCode().value());
+        verify(repository, never()).search(any(), any(), any());
+    }
+
+    @Test
+    void rejectsUnsupportedSortFields() {
+        var exception = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.findAll(
+                        new ProductSearchCriteria(null, null, null, null, null),
+                        PageRequest.of(0, 10, Sort.by("currency")),
+                        "BRL"
+                )
+        );
+
+        assertEquals(400, exception.getStatusCode().value());
+        verify(repository, never()).search(any(), any(), any());
     }
 }
