@@ -6,6 +6,8 @@ A aplicação é composta por quatro serviços independentes: autenticação, ca
 
 O objetivo é construir uma base de e-commerce distribuída, explorando conceitos de desenvolvimento backend, APIs REST, autenticação, persistência de dados e comunicação entre microsserviços.
 
+Consulte [API.md](./API.md) para a documentação detalhada dos fluxos de autenticação e do catálogo de produtos.
+
 ## Arquitetura
 
 O projeto é organizado em quatro microsserviços:
