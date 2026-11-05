@@ -2,9 +2,12 @@ package br.edu.atitus.productapi.servicesimpl;
 
 import br.edu.atitus.productapi.dtos.CurrencyResponse;
 import br.edu.atitus.productapi.dtos.ProductRequest;
+import br.edu.atitus.productapi.dtos.ProductStatusRequest;
+import br.edu.atitus.productapi.dtos.ProductUpdateRequest;
 import br.edu.atitus.productapi.entities.CategoryEntity;
 import br.edu.atitus.productapi.entities.ProductEntity;
 import br.edu.atitus.productapi.entities.SubcategoryEntity;
+import br.edu.atitus.productapi.enums.ProductType;
 import br.edu.atitus.productapi.repositories.ProductRepository;
 import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,9 +44,8 @@ class ProductServiceJpaTest {
         productService = new ProductServiceJpa(repository, currencyClientService, subcategoryRepository);
         ReflectionTestUtils.setField(productService, "serverPort", "8000");
         ReflectionTestUtils.setField(productService, "promotionMessage", "Test promotion");
-        when(repository.findByIdAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(1L)).thenReturn(Optional.of(
-                new ProductEntity(1L, "Brand", "Model", "Description", "USD", 20.0, "image")
-        ));
+        when(repository.findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(1L))
+                .thenReturn(Optional.of(product()));
     }
 
     @Test
@@ -53,6 +55,11 @@ class ProductServiceJpaTest {
 
         var response = productService.findById(1L, "BRL");
 
+        assertEquals("Name", response.name());
+        assertEquals("Brand", response.brand());
+        assertEquals("Model", response.model());
+        assertEquals("Description", response.description());
+        assertEquals(ProductType.SINGLE_UNIT, response.productType());
         assertEquals(100.0, response.convertedPrice());
         assertTrue(response.environment().contains("currency-api"));
     }
@@ -70,7 +77,7 @@ class ProductServiceJpaTest {
 
     @Test
     void hidesProductWhenCategoryOrSubcategoryIsInactive() {
-        when(repository.findByIdAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(1L))
+        when(repository.findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(1L))
                 .thenReturn(Optional.empty());
 
         assertThrows(jakarta.persistence.EntityNotFoundException.class, () -> productService.findById(1L, "BRL"));
@@ -78,12 +85,12 @@ class ProductServiceJpaTest {
 
     @Test
     void listsProductsUsingActiveSubcategoryAndCategoryFilter() throws Exception {
-        when(repository.findAllBySubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(any()))
+        when(repository.findAllByActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(any()))
                 .thenReturn(new PageImpl<>(List.of()));
 
         productService.findAll(PageRequest.of(0, 10), "BRL");
 
-        verify(repository).findAllBySubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(any());
+        verify(repository).findAllByActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(any());
     }
 
     @Test
@@ -91,7 +98,7 @@ class ProductServiceJpaTest {
         var exception = assertThrows(
                 ResponseStatusException.class,
                 () -> productService.save(new ProductRequest(
-                        "Brand", "Model", "Description", "BRL", 10.0, null, null
+                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, null, ProductType.MULTI_UNIT
                 ))
         );
 
@@ -108,7 +115,7 @@ class ProductServiceJpaTest {
         var exception = assertThrows(
                 ResponseStatusException.class,
                 () -> productService.save(new ProductRequest(
-                        "Brand", "Model", "Description", "BRL", 10.0, null, 4L
+                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, ProductType.MULTI_UNIT
                 ))
         );
 
@@ -132,10 +139,150 @@ class ProductServiceJpaTest {
         when(repository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         var product = productService.save(new ProductRequest(
-                "Brand", "Model", "Description", "BRL", 10.0, null, 4L
+                "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, ProductType.SINGLE_UNIT
         ));
 
+        assertEquals("Name", product.getName());
+        assertEquals(ProductType.SINGLE_UNIT, product.getProductType());
         assertEquals(subcategory, product.getSubcategory());
         verify(repository).save(any(ProductEntity.class));
+    }
+
+    @Test
+    void requiresNameAndProductTypeWhenCreatingProduct() {
+        var noName = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.save(new ProductRequest(
+                        " ", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, ProductType.MULTI_UNIT
+                ))
+        );
+        var noType = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.save(new ProductRequest(
+                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 4L, null
+                ))
+        );
+
+        assertEquals(400, noName.getStatusCode().value());
+        assertEquals(400, noType.getStatusCode().value());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void updatesEditableFieldsWithoutChangingProductTypeOrStatus() {
+        var product = product();
+        product.setActive(false);
+        when(repository.findById(1L)).thenReturn(Optional.of(product));
+        var newSubcategory = activeSubcategory();
+        when(subcategoryRepository.findByIdAndActiveTrueAndCategory_ActiveTrue(5L))
+                .thenReturn(Optional.of(newSubcategory));
+        when(repository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var updated = productService.update(1L, new ProductUpdateRequest(
+                "Updated name", "Updated brand", "Updated model", "Updated description",
+                "EUR", 15.0, "new-image", 5L
+        ));
+
+        assertEquals(1L, updated.getId());
+        assertEquals("Updated name", updated.getName());
+        assertEquals("Updated description", updated.getDescription());
+        assertEquals(ProductType.SINGLE_UNIT, updated.getProductType());
+        assertEquals(false, updated.isActive());
+        assertEquals(newSubcategory, updated.getSubcategory());
+    }
+
+    @Test
+    void rejectsUpdateWhenSubcategoryIsInactiveOrMissing() {
+        when(repository.findById(1L)).thenReturn(Optional.of(product()));
+        when(subcategoryRepository.findByIdAndActiveTrueAndCategory_ActiveTrue(5L)).thenReturn(Optional.empty());
+
+        var exception = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.update(1L, new ProductUpdateRequest(
+                        "Name", "Brand", "Model", "Description", "BRL", 10.0, null, 5L
+                ))
+        );
+
+        assertEquals(400, exception.getStatusCode().value());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void reportsMissingProductBeforeValidatingUpdateRequest() {
+        var exception = assertThrows(
+                jakarta.persistence.EntityNotFoundException.class,
+                () -> productService.update(99L, null)
+        );
+
+        assertEquals("Produto não encontrado", exception.getMessage());
+    }
+
+    @Test
+    void preventsReactivationWhenCategoryOrSubcategoryIsInactive() {
+        var product = product();
+        var category = new CategoryEntity();
+        category.setActive(false);
+        var subcategory = new SubcategoryEntity();
+        subcategory.setActive(true);
+        subcategory.setCategory(category);
+        product.setSubcategory(subcategory);
+        when(repository.findById(1L)).thenReturn(Optional.of(product));
+
+        var exception = assertThrows(
+                ResponseStatusException.class,
+                () -> productService.updateStatus(1L, new ProductStatusRequest(true))
+        );
+
+        assertEquals(409, exception.getStatusCode().value());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void deactivatesProductWithoutDeletingIt() {
+        var product = product();
+        when(repository.findById(1L)).thenReturn(Optional.of(product));
+        when(repository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var updated = productService.updateStatus(1L, new ProductStatusRequest(false));
+
+        assertEquals(false, updated.isActive());
+        verify(repository).save(product);
+    }
+
+    @Test
+    void reactivatesProductWhenCategoryAndSubcategoryAreActive() {
+        var product = product();
+        product.setActive(false);
+        when(repository.findById(1L)).thenReturn(Optional.of(product));
+        when(repository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var updated = productService.updateStatus(1L, new ProductStatusRequest(true));
+
+        assertEquals(true, updated.isActive());
+        verify(repository).save(product);
+    }
+
+    private ProductEntity product() {
+        var product = new ProductEntity();
+        product.setId(1L);
+        product.setName("Name");
+        product.setBrand("Brand");
+        product.setModel("Model");
+        product.setDescription("Description");
+        product.setCurrency("USD");
+        product.setPrice(20.0);
+        product.setImage("image");
+        product.setProductType(ProductType.SINGLE_UNIT);
+        product.setSubcategory(activeSubcategory());
+        return product;
+    }
+
+    private SubcategoryEntity activeSubcategory() {
+        var category = new CategoryEntity();
+        category.setActive(true);
+        var subcategory = new SubcategoryEntity();
+        subcategory.setActive(true);
+        subcategory.setCategory(category);
+        return subcategory;
     }
 }

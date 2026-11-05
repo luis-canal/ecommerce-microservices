@@ -14,7 +14,7 @@ O projeto é organizado em quatro microsserviços:
 |---|---|
 | `gateway-api` | Ponto de entrada da aplicação, roteamento e validação de JWT nas rotas protegidas. |
 | `auth-api` | Cadastro de usuários, autenticação e emissão de tokens JWT. |
-| `product-api` | Consulta, paginação e cadastro de produtos. |
+| `product-api` | Consulta e gerenciamento do ciclo de vida de produtos. |
 | `currency-api` | Consulta de taxas cambiais e conversão de moedas. |
 
 ### Fluxo de comunicação
@@ -87,13 +87,16 @@ Também existem rotas equivalentes sob o prefixo `/ws/auth`.
 
 ### 2. Catálogo de produtos — `product-api`
 
-Responsável pela consulta e pelo cadastro de produtos.
+Responsável pela consulta e pelo ciclo de vida dos produtos do catálogo.
 
 - Consulta de produto por identificador.
 - Listagem paginada de produtos.
 - Ordenação dos resultados.
 - Conversão de preços para outras moedas.
 - Cadastro de produtos restrito a administradores.
+- Edição, desativação e reativação de produtos restritas a administradores.
+- Classificação dos produtos como unitários ou multi-unitários; o controle de quantidades pertence ao futuro `inventory-api`.
+- Produtos inativos não são exibidos nas consultas públicas.
 - Validação de campos obrigatórios e preços positivos.
 - Carregamento de dados iniciais por migrações Flyway.
 
@@ -104,6 +107,12 @@ Responsável pela consulta e pelo cadastro de produtos.
 | GET | `/products` | Lista produtos com paginação |
 | GET | `/products/{id}` | Consulta produto por ID |
 | POST | `/ws/products` | Cadastra produto (administrador) |
+| PUT | `/ws/products/{id}` | Edita dados permitidos (administrador) |
+| PATCH | `/ws/products/{id}/status` | Desativa ou reativa um produto (administrador) |
+
+O cadastro recebe `name`, `brand`, `model`, `description`, `currency`, `price`, `image`, `subcategoryId` e `productType`. A descrição identifica o texto descritivo do produto; `productType` aceita `SINGLE_UNIT` ou `MULTI_UNIT`. O PUT atualiza os dados editáveis, mas não permite alterar o identificador, o tipo de estoque ou o status. O status é controlado exclusivamente pelo PATCH com `{"active": false}` ou `{"active": true}`. A reativação é recusada se a categoria ou subcategoria do produto estiver inativa.
+
+Na migração para os novos campos, produtos existentes recebem `name` a partir de `model`; produtos sem nome válido ou sem classificação explícita de tipo impedem a migração até que os dados sejam mapeados.
 
 A listagem utiliza, por padrão, página 0, tamanho 10 e ordenação por descrição.
 

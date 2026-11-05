@@ -1,5 +1,6 @@
 package br.edu.atitus.productapi.entities;
 
+import br.edu.atitus.productapi.enums.ProductType;
 import jakarta.persistence.*;
 
 @Entity
@@ -9,12 +10,22 @@ public class ProductEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(nullable = false)
+    private String name;
     private String brand;
     private String model;
     private String description;
     private String currency;
     private double price;
     private String image;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private ProductType productType;
+
+    @Column(nullable = false)
+    private boolean active = true;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "subcategory_id", nullable = false)
@@ -23,22 +34,20 @@ public class ProductEntity {
     public ProductEntity() {
     }
 
-    public ProductEntity(Long id, String brand, String model, String description, String currency, double price, String image) {
-        this.id = id;
-        this.brand = brand;
-        this.model = model;
-        this.description = description;
-        this.currency = currency;
-        this.price = price;
-        this.image = image;
-    }
-
     public Long getId() {
         return id;
     }
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public String getBrand() {
@@ -87,6 +96,22 @@ public class ProductEntity {
 
     public void setImage(String image) {
         this.image = image;
+    }
+
+    public ProductType getProductType() {
+        return productType;
+    }
+
+    public void setProductType(ProductType productType) {
+        this.productType = productType;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 
     public SubcategoryEntity getSubcategory() {

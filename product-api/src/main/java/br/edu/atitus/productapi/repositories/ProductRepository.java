@@ -8,7 +8,7 @@ import org.springframework.data.domain.Pageable;
 import java.util.Optional;
 
 public interface ProductRepository extends JpaRepository<ProductEntity, Long> {
-    Optional<ProductEntity> findByIdAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(Long id);
+    Optional<ProductEntity> findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(Long id);
 
-    Page<ProductEntity> findAllBySubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(Pageable pageable);
+    Page<ProductEntity> findAllByActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(Pageable pageable);
 }

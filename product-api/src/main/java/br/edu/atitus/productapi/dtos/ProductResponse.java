@@ -1,9 +1,11 @@
 package br.edu.atitus.productapi.dtos;
 
 import br.edu.atitus.productapi.entities.ProductEntity;
+import br.edu.atitus.productapi.enums.ProductType;
 
 public record ProductResponse(
         Long id,
+        String name,
         String brand,
         String model,
         String description,
@@ -14,6 +16,8 @@ public record ProductResponse(
         String subcategoryName,
         Long categoryId,
         String categoryName,
+        ProductType productType,
+        boolean active,
 
         String environment,
         String promotionMessage,
@@ -25,9 +29,10 @@ public record ProductResponse(
         var category = subcategory == null ? null : subcategory.getCategory();
         return new ProductResponse(
                 entity.getId(),
-                entity.getDescription(),
+                entity.getName(),
                 entity.getBrand(),
                 entity.getModel(),
+                entity.getDescription(),
                 entity.getCurrency(),
                 entity.getPrice(),
                 entity.getImage(),
@@ -35,6 +40,8 @@ public record ProductResponse(
                 subcategory == null ? null : subcategory.getName(),
                 category == null ? null : category.getId(),
                 category == null ? null : category.getName(),
+                entity.getProductType(),
+                entity.isActive(),
                 environment,
                 promotionMessage,
                 targetCurrency,

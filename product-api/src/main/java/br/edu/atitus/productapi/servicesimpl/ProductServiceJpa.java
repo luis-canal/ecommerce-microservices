@@ -2,7 +2,10 @@ package br.edu.atitus.productapi.servicesimpl;
 
 import br.edu.atitus.productapi.dtos.ProductRequest;
 import br.edu.atitus.productapi.dtos.ProductResponse;
+import br.edu.atitus.productapi.dtos.ProductStatusRequest;
+import br.edu.atitus.productapi.dtos.ProductUpdateRequest;
 import br.edu.atitus.productapi.entities.ProductEntity;
+import br.edu.atitus.productapi.entities.SubcategoryEntity;
 import br.edu.atitus.productapi.repositories.ProductRepository;
 import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import br.edu.atitus.productapi.services.ProductService;
@@ -66,7 +69,7 @@ public class ProductServiceJpa implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public ProductResponse findById(Long id, String targetCurrency) throws Exception {
-        var product = repository.findByIdAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(id)
+        var product = repository.findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(id)
                 .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
         String environment = "Product API running in port " + serverPort;
 
@@ -76,7 +79,7 @@ public class ProductServiceJpa implements ProductService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProductResponse> findAll(Pageable pageable, String targetCurrency) throws Exception {
-        var products = repository.findAllBySubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(pageable);
+        var products = repository.findAllByActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(pageable);
         String environment = "Product API running in port " + serverPort;
 
         return products.map(
@@ -90,31 +93,52 @@ public class ProductServiceJpa implements ProductService {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requisição inválida");
         }
-        if (request.brand() == null || request.brand().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Marca inválida");
+        validateFields(
+                request.name(),
+                request.brand(),
+                request.model(),
+                request.description(),
+                request.currency(),
+                request.price()
+        );
+        if (request.productType() == null) {
+            throw badRequest("Tipo de produto obrigatório");
         }
-        if (request.model() == null || request.model().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Modelo inválido");
-        }
-        if (request.description() == null || request.description().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Descrição inválida");
-        }
-        if (request.price() <= 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Preço inválido");
-        }
-        if (request.currency() == null || request.currency().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Moeda inválida");
-        }
-        if (request.subcategoryId() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Subcategoria obrigatória");
-        }
-        var subcategory = subcategoryRepository.findByIdAndActiveTrueAndCategory_ActiveTrue(request.subcategoryId())
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "A subcategoria informada não existe ou está inativa"
-                ));
+        var subcategory = findActiveSubcategory(request.subcategoryId());
 
         var product = new ProductEntity();
+        product.setName(request.name().trim());
+        product.setBrand(request.brand().trim());
+        product.setModel(request.model().trim());
+        product.setDescription(request.description().trim());
+        product.setPrice(request.price());
+        product.setCurrency(request.currency().trim());
+        product.setImage(request.image() != null ? request.image().trim() : null);
+        product.setSubcategory(subcategory);
+        product.setProductType(request.productType());
+        product.setActive(true);
+        return repository.save(product);
+    }
+
+    @Override
+    @Transactional
+    public ProductEntity update(Long id, ProductUpdateRequest request) {
+        var product = repository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
+        if (request == null) {
+            throw badRequest("Requisição inválida");
+        }
+        validateFields(
+                request.name(),
+                request.brand(),
+                request.model(),
+                request.description(),
+                request.currency(),
+                request.price()
+        );
+        var subcategory = findActiveSubcategory(request.subcategoryId());
+
+        product.setName(request.name().trim());
         product.setBrand(request.brand().trim());
         product.setModel(request.model().trim());
         product.setDescription(request.description().trim());
@@ -123,5 +147,67 @@ public class ProductServiceJpa implements ProductService {
         product.setImage(request.image() != null ? request.image().trim() : null);
         product.setSubcategory(subcategory);
         return repository.save(product);
+    }
+
+    @Override
+    @Transactional
+    public ProductEntity updateStatus(Long id, ProductStatusRequest request) {
+        if (request == null || request.active() == null) {
+            throw badRequest("Status inválido");
+        }
+        var product = repository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
+        if (request.active()
+                && (!product.getSubcategory().isActive() || !product.getSubcategory().getCategory().isActive())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Não é possível reativar um produto com categoria ou subcategoria inativa"
+            );
+        }
+        product.setActive(request.active());
+        return repository.save(product);
+    }
+
+    private void validateFields(
+            String name,
+            String brand,
+            String model,
+            String description,
+            String currency,
+            double price
+    ) {
+        if (name == null || name.isBlank()) {
+            throw badRequest("Nome inválido");
+        }
+        if (brand == null || brand.isBlank()) {
+            throw badRequest("Marca inválida");
+        }
+        if (model == null || model.isBlank()) {
+            throw badRequest("Modelo inválido");
+        }
+        if (description == null || description.isBlank()) {
+            throw badRequest("Descrição inválida");
+        }
+        if (!Double.isFinite(price) || price <= 0) {
+            throw badRequest("Preço inválido");
+        }
+        if (currency == null || currency.isBlank()) {
+            throw badRequest("Moeda inválida");
+        }
+    }
+
+    private SubcategoryEntity findActiveSubcategory(Long subcategoryId) {
+        if (subcategoryId == null) {
+            throw badRequest("Subcategoria obrigatória");
+        }
+        return subcategoryRepository.findByIdAndActiveTrueAndCategory_ActiveTrue(subcategoryId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "A subcategoria informada não existe ou está inativa"
+                ));
+    }
+
+    private ResponseStatusException badRequest(String message) {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
     }
 }
