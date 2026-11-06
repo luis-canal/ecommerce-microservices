@@ -174,6 +174,23 @@ if [ "${#GATEWAY_DOWNSTREAM_TOKEN}" -lt 32 ]; then
     exit 1
 fi
 
+GATEWAY_ORDER_SECRET_FILE="/run/secrets/gateway_order_downstream_token"
+if [ ! -s "$GATEWAY_ORDER_SECRET_FILE" ]; then
+    umask 077
+    generated_secret="$(consul keygen)"
+    if [ "${#generated_secret}" -lt 32 ]; then
+        echo "Não foi possível gerar uma credencial Gateway-Order válida" >&2
+        exit 1
+    fi
+    printf '%s' "$generated_secret" > "$GATEWAY_ORDER_SECRET_FILE"
+fi
+
+GATEWAY_ORDER_TOKEN="$(cat "$GATEWAY_ORDER_SECRET_FILE")"
+if [ "${#GATEWAY_ORDER_TOKEN}" -lt 32 ]; then
+    echo "A credencial Gateway-Order persistida é inválida" >&2
+    exit 1
+fi
+
 put "config/auth-api/server.port" "8200"
 put "config/auth-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
 
@@ -193,6 +210,8 @@ put "config/gateway-api/gateway.security.service-token" "$SERVICE_AUTH_TOKEN"
 
 put "config/inventory-api/inventory.security.gateway-token" "$GATEWAY_DOWNSTREAM_TOKEN"
 put "config/gateway-api/gateway.security.inventory-downstream-token" "$GATEWAY_DOWNSTREAM_TOKEN"
+put "config/order-api/order.security.gateway-token" "$GATEWAY_ORDER_TOKEN"
+put "config/gateway-api/gateway.security.order-downstream-token" "$GATEWAY_ORDER_TOKEN"
 
 
 # ==========================================================
@@ -223,6 +242,12 @@ put "config/order-api/spring.datasource.url" \
     "jdbc:postgresql://order-db:5432/db_order"
 put "config/order-api/spring.datasource.username" "postgres"
 put "config/order-api/spring.datasource.password" "postgres"
+put "config/order-api/order.security.service-token" "$SERVICE_AUTH_TOKEN"
+put "config/order-api/order.clients.inventory-api.service-token" "$SERVICE_AUTH_TOKEN"
+put "config/order-api/order.clients.product-api.base-url" "http://product-api"
+put "config/order-api/order.clients.currency-api.base-url" "http://currency-api"
+put "config/order-api/order.clients.inventory-api.base-url" "http://inventory-api"
+put "config/order-api/order.reservations.expiration-scan-ms" "30000"
 
 # ==========================================================
 # FINALIZAÇÃO

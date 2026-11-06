@@ -1,9 +1,9 @@
 package br.edu.atitus.orderapi.entities;
 
-import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import jakarta.persistence.CascadeType;
@@ -12,6 +12,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
@@ -24,8 +26,7 @@ public class OrderEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
-    private LocalDateTime orderDate;
+    private Instant orderDate;
 
     @Column(nullable = false)
     @JsonIgnore
@@ -34,11 +35,31 @@ public class OrderEntity {
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItemEntity> items;
 
-    @Transient
-    private double totalPrice;
+    @Column(nullable = false, length = 32)
+    @Enumerated(EnumType.STRING)
+    private OrderStatus status = OrderStatus.LEGACY;
+
+    private Long reservationId;
+
+    private Instant reservationExpiresAt;
+
+    private Instant confirmedAt;
+
+    private Instant cancelledAt;
+
+    @Column(length = 128)
+    @JsonIgnore
+    private String idempotencyKey;
+
+    @Column(length = 64)
+    @JsonIgnore
+    private String requestFingerprint;
 
     @Transient
-    private double totalConvertedPrice;
+    private BigDecimal totalPrice = BigDecimal.ZERO;
+
+    @Transient
+    private BigDecimal totalConvertedPrice = BigDecimal.ZERO;
 
     public Long getId() {
         return id;
@@ -48,11 +69,11 @@ public class OrderEntity {
         this.id = id;
     }
 
-    public LocalDateTime getOrderDate() {
+    public Instant getOrderDate() {
         return orderDate;
     }
 
-    public void setOrderDate(LocalDateTime orderDate) {
+    public void setOrderDate(Instant orderDate) {
         this.orderDate = orderDate;
     }
 
@@ -72,19 +93,75 @@ public class OrderEntity {
         this.items = items;
     }
 
-    public double getTotalPrice() {
+    public OrderStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(OrderStatus status) {
+        this.status = status;
+    }
+
+    public Long getReservationId() {
+        return reservationId;
+    }
+
+    public void setReservationId(Long reservationId) {
+        this.reservationId = reservationId;
+    }
+
+    public Instant getReservationExpiresAt() {
+        return reservationExpiresAt;
+    }
+
+    public void setReservationExpiresAt(Instant reservationExpiresAt) {
+        this.reservationExpiresAt = reservationExpiresAt;
+    }
+
+    public Instant getConfirmedAt() {
+        return confirmedAt;
+    }
+
+    public void setConfirmedAt(Instant confirmedAt) {
+        this.confirmedAt = confirmedAt;
+    }
+
+    public Instant getCancelledAt() {
+        return cancelledAt;
+    }
+
+    public void setCancelledAt(Instant cancelledAt) {
+        this.cancelledAt = cancelledAt;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public void setIdempotencyKey(String idempotencyKey) {
+        this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public void setRequestFingerprint(String requestFingerprint) {
+        this.requestFingerprint = requestFingerprint;
+    }
+
+    public BigDecimal getTotalPrice() {
         return totalPrice;
     }
 
-    public void setTotalPrice(double totalPrice) {
+    public void setTotalPrice(BigDecimal totalPrice) {
         this.totalPrice = totalPrice;
     }
 
-    public double getTotalConvertedPrice() {
+    public BigDecimal getTotalConvertedPrice() {
         return totalConvertedPrice;
     }
 
-    public void setTotalConvertedPrice(double totalConvertedPrice) {
+    public void setTotalConvertedPrice(BigDecimal totalConvertedPrice) {
         this.totalConvertedPrice = totalConvertedPrice;
     }
 

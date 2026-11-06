@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "tb_order_item")
@@ -29,14 +30,29 @@ public class OrderItemEntity {
     @Column(nullable = false)
     private Integer quantity;
 
-    @Column(nullable = false)
-    private double priceAtPurchase; // guarda o preço no momento da compra
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal priceAtPurchase;
 
     @Column(nullable = false)
     private String currencyAtPurchase; // guarda a moeda no momento da compra
 
+    @Column(length = 200)
+    private String productName;
+
+    @Column(length = 200)
+    private String productBrand;
+
+    @Column(length = 200)
+    private String productModel;
+
+    @Column(length = 2000)
+    private String productDescription;
+
+    @Column(length = 1000)
+    private String productImage;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "order_id")
+    @JoinColumn(name = "order_id", nullable = false)
     @JsonIgnore
     private OrderEntity order;
 
@@ -44,7 +60,7 @@ public class OrderItemEntity {
     private ProductResponse product; // preenchido via chamada REST
 
     @Transient
-    private double convertedPriceAtPruchase;
+    private BigDecimal convertedPriceAtPruchase = BigDecimal.ZERO;
 
     public Long getId() {
         return id;
@@ -70,11 +86,11 @@ public class OrderItemEntity {
         this.quantity = quantity;
     }
 
-    public double getPriceAtPurchase() {
+    public BigDecimal getPriceAtPurchase() {
         return priceAtPurchase;
     }
 
-    public void setPriceAtPurchase(double priceAtPurchase) {
+    public void setPriceAtPurchase(BigDecimal priceAtPurchase) {
         this.priceAtPurchase = priceAtPurchase;
     }
 
@@ -84,6 +100,46 @@ public class OrderItemEntity {
 
     public void setCurrencyAtPurchase(String currencyAtPurchase) {
         this.currencyAtPurchase = currencyAtPurchase;
+    }
+
+    public String getProductName() {
+        return productName;
+    }
+
+    public void setProductName(String productName) {
+        this.productName = productName;
+    }
+
+    public String getProductBrand() {
+        return productBrand;
+    }
+
+    public void setProductBrand(String productBrand) {
+        this.productBrand = productBrand;
+    }
+
+    public String getProductModel() {
+        return productModel;
+    }
+
+    public void setProductModel(String productModel) {
+        this.productModel = productModel;
+    }
+
+    public String getProductDescription() {
+        return productDescription;
+    }
+
+    public void setProductDescription(String productDescription) {
+        this.productDescription = productDescription;
+    }
+
+    public String getProductImage() {
+        return productImage;
+    }
+
+    public void setProductImage(String productImage) {
+        this.productImage = productImage;
     }
 
     public OrderEntity getOrder() {
@@ -102,11 +158,11 @@ public class OrderItemEntity {
         this.product = product;
     }
 
-    public double getConvertedPriceAtPruchase() {
+    public BigDecimal getConvertedPriceAtPruchase() {
         return convertedPriceAtPruchase;
     }
 
-    public void setConvertedPriceAtPruchase(double convertedPriceAtPruchase) {
+    public void setConvertedPriceAtPruchase(BigDecimal convertedPriceAtPruchase) {
         this.convertedPriceAtPruchase = convertedPriceAtPruchase;
     }
 

@@ -815,7 +815,7 @@ Retorna o objeto de subcategoria com `active` atualizado.
 
 O `inventory-api` mantém quantidades físicas, reservas temporárias e movimentações. O `productId` é uma referência ao catálogo; dados comerciais e ativação do produto continuam sob responsabilidade do `product-api`. Disponibilidade no estoque é calculada como `quantityOnHand - quantityReserved` e não indica, isoladamente, que o produto está ativo para venda.
 
-As rotas administrativas exigem JWT de administrador. As consultas de disponibilidade, analytics e operações de reserva são destinadas a chamadas serviço-a-serviço: o Gateway injeta a credencial interna, que clientes externos não devem enviar nem configurar. A consulta individual de uma reserva também aceita acesso administrativo. Use o token JWT normalmente nas chamadas feitas pelo cliente ao Gateway.
+As rotas administrativas exigem JWT de administrador. Consultas de disponibilidade, analytics e operações de reserva são destinadas a chamadas serviço-a-serviço autenticadas com `X-Service-Token`; quando encaminhadas pelo Gateway, também passam pela validação da credencial Gateway. A consulta individual de uma reserva também aceita acesso administrativo via JWT. Clientes externos não devem enviar nem configurar cabeçalhos ou credenciais internos.
 
 ### Consultar estoque e disponibilidade
 
@@ -954,3 +954,78 @@ As três chamadas administrativas usam o JWT de um administrador encaminhado pel
 O produto é criado ativo no catálogo antes de o estoque ser provisionado. Portanto, pode existir temporariamente um produto ativo sem estoque registrado; a disponibilidade comercial deve considerar tanto o status do catálogo quanto a disponibilidade retornada pelo Inventory API. Se o fluxo precisar garantir que nenhum produto seja exposto antes da conclusão do provisionamento, o sistema que o orquestra deve controlar essa publicação/ativação; o fluxo atual não fornece essa garantia atômica.
 
 Para `SINGLE_UNIT`, cadastre cada peça exclusiva como um produto distinto e registre no máximo uma unidade para cada `productId`. Para `MULTI_UNIT`, o saldo pode ser maior que uma unidade.
+
+## Pedidos
+
+O `order-api` registra pedidos de clientes e coordena a reserva de estoque. Requisições de clientes devem entrar pelo Gateway (`:8080`); não exponha diretamente a porta interna do serviço. As chamadas do Order API para Product, Currency e Inventory usam descoberta pelo Consul na rede interna, sem passar novamente pelo Gateway.
+
+O Order API valida cada produto no catálogo, congela os dados essenciais e o preço convertido para BRL no momento da compra, persiste um pedido provisório e só o disponibiliza como `PENDING_PAYMENT` depois de obter a reserva atômica de todos os itens no Inventory API. O preço guardado não muda se o catálogo ou a cotação forem alterados depois.
+
+### Criar pedido
+
+**`POST /ws/orders`**
+
+**Autenticação:** cliente autenticado. O Gateway deriva a identidade do JWT e exige perfil de cliente.
+
+**Headers**
+
+| Header | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `Authorization` | string | Sim | `Bearer <JWT>` válido de um cliente. |
+| `Idempotency-Key` | string | Recomendado | Chave de até 128 caracteres para tornar repetível uma tentativa após timeout. A mesma chave e o mesmo conteúdo retornam o pedido existente; a mesma chave com itens diferentes resulta em `409 Conflict`. |
+| `Content-Type` | string | Sim | `application/json`. |
+
+O corpo deve conter entre 1 e 100 itens, com `productId` e `quantity` positivos e sem IDs duplicados:
+
+```json
+{
+  "items": [
+    { "productId": 101, "quantity": 3 },
+    { "productId": 102, "quantity": 1 }
+  ]
+}
+```
+
+**Sucesso — `201 Created`**
+
+Retorna o pedido com os dados de snapshot, valor total em BRL, estado, `reservationId` e expiração. O estado inicial após a reserva é `PENDING_PAYMENT`; isso significa que o estoque está reservado, não que o pagamento foi aprovado.
+
+**Erros comuns**
+
+| Status | Quando ocorre |
+|---|---|
+| `400 Bad Request` | Lista vazia, mais de 100 itens, IDs ou quantidades inválidas, IDs duplicados ou chave de idempotência maior que 128 caracteres. |
+| `403 Forbidden` | Usuário autenticado sem perfil de cliente. |
+| `409 Conflict` | Estoque insuficiente, chave repetida com conteúdo diferente ou reserva não ativa. O pedido provisório é removido nas rejeições definitivas de estoque. |
+| `422 Unprocessable Entity` | Produto não encontrado ou inativo no catálogo. |
+| `502 Bad Gateway` / `503 Service Unavailable` | Falha de integração. Se o resultado da reserva for incerto, repita a mesma requisição com a mesma `Idempotency-Key`; o pedido fica recuperável e a operação de reserva é idempotente por `orderId`. |
+
+Sem `Idempotency-Key`, repetir uma requisição após timeout pode criar outro pedido. Clientes devem gerar uma chave por intenção de compra e reutilizá-la em todas as tentativas daquela mesma operação.
+
+### Consultar pedidos
+
+**`GET /ws/orders`**
+
+**Autenticação:** cliente autenticado. A consulta é sempre limitada ao cliente identificado pelo JWT; não aceite nem envie `customerId` no query string.
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `page` | inteiro | Não | Página baseada em zero; padrão `0`. |
+| `size` | inteiro | Não | Itens por página; padrão `5`, máximo `100`. |
+| `sort` | string | Não | Ordenação Spring Data; padrão `orderDate,desc` e `id,desc`. |
+| `targetCurrency` | string | Não | Código de moeda ISO de três letras para os valores apresentados; padrão `BRL`. |
+
+Os dados comerciais dos itens vêm do snapshot persistido na compra, não de consultas ao catálogo atual. A listagem busca os itens em lote e, quando a moeda solicitada não é BRL, faz uma chamada de câmbio por página. Valores convertidos na consulta são apenas para apresentação; não substituem o preço histórico em BRL.
+
+### Transições internas e pagamento futuro
+
+O `payment-api` ou outro serviço confiável poderá solicitar as seguintes transições diretamente ao Order API pela rede interna, autenticando com `X-Service-Token`. Essas operações não são endpoints para o cliente final e o segredo não deve ser enviado ao aplicativo cliente.
+
+| Método e rota interna | Efeito |
+|---|---|
+| `POST /ws/orders/{orderId}/confirm` | Confirma a reserva no Inventory API e muda o pedido para `CONFIRMED`; repetição após confirmação não baixa estoque novamente. |
+| `POST /ws/orders/{orderId}/cancel` | Libera a reserva e muda o pedido para `CANCELLED`; não cancela pedido confirmado. |
+
+Se a reserva tiver expirado, o pedido passa a `EXPIRED` e não é confirmado. O Order API também reconcilia pedidos cujo prazo passou, consultando o estado atual da reserva no Inventory API. A expiração automática do Inventory API, por si só, não altera instantaneamente o estado local do pedido; a reconciliação ocorre periodicamente.
+
+Estados de pedido utilizados: `RESERVATION_PENDING` durante a coordenação inicial, `PENDING_PAYMENT` após reserva bem-sucedida, `CONFIRMED`, `CANCELLED`, `EXPIRED` e `LEGACY` para registros anteriores à migração. Não há integração de pagamento ativa ainda; a confirmação e o cancelamento devem ser chamados pelo fluxo que futuramente processará o resultado do pagamento.

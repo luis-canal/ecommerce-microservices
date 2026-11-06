@@ -17,9 +17,14 @@ import java.security.MessageDigest;
 public class GatewayTokenFilter extends OncePerRequestFilter {
 
     private final String gatewayToken;
+    private final String serviceToken;
 
-    public GatewayTokenFilter(@Value("${inventory.security.gateway-token:}") String gatewayToken) {
+    public GatewayTokenFilter(
+            @Value("${inventory.security.gateway-token:}") String gatewayToken,
+            @Value("${inventory.security.service-token:}") String serviceToken
+    ) {
         this.gatewayToken = gatewayToken;
+        this.serviceToken = serviceToken;
     }
 
     @Override
@@ -34,6 +39,11 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain
     ) throws ServletException, IOException {
+        if (isInternalServicePath(request.getRequestURI()) && isValidServiceToken(request.getHeader("X-Service-Token"))) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (gatewayToken == null || gatewayToken.isBlank()) {
             response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), "Autenticação do Gateway não configurada.");
             return;
@@ -49,5 +59,22 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isInternalServicePath(String path) {
+        return path.startsWith("/ws/inventory/reservations")
+                || path.startsWith("/ws/inventory/availability")
+                || path.startsWith("/ws/inventory/analytics")
+                || path.matches("/ws/inventory/[0-9]+/availability");
+    }
+
+    private boolean isValidServiceToken(String suppliedToken) {
+        return serviceToken != null
+                && !serviceToken.isBlank()
+                && suppliedToken != null
+                && MessageDigest.isEqual(
+                        serviceToken.getBytes(StandardCharsets.UTF_8),
+                        suppliedToken.getBytes(StandardCharsets.UTF_8)
+                );
     }
 }

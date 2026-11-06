@@ -1,8 +1,7 @@
 package br.edu.atitus.orderapi.configs;
 
 import br.edu.atitus.orderapi.clients.CurrencyClient;
-import org.springframework.boot.restclient.autoconfigure.RestClientBuilderConfigurer;
-import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -16,13 +15,10 @@ import java.time.Duration;
 public class CurrencyClientConfig {
 
     @Bean
-    @LoadBalanced
-    RestClient.Builder getLoadBalancedBuilder(RestClientBuilderConfigurer configurer){
-        return configurer.configure(RestClient.builder());
-    }
-
-    @Bean
-    CurrencyClient getClientCurrency(RestClient.Builder builder) {
+    CurrencyClient getClientCurrency(
+            RestClient.Builder builder,
+            @Value("${order.clients.currency-api.base-url:http://currency-api}") String baseUrl
+    ) {
         SimpleClientHttpRequestFactory requestFactory =
                 new SimpleClientHttpRequestFactory();
 
@@ -30,7 +26,7 @@ public class CurrencyClientConfig {
         requestFactory.setReadTimeout(Duration.ofSeconds(2));
 
         RestClient restClient = builder
-                .baseUrl("http://currency-api")
+                .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
                 .build();
         RestClientAdapter adapter = RestClientAdapter.create(restClient);

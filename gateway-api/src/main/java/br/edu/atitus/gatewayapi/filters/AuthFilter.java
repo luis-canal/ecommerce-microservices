@@ -33,15 +33,18 @@ public class AuthFilter implements GlobalFilter, Ordered {
     private final TokenRevocationClient tokenRevocationClient;
     private final String serviceToken;
     private final String inventoryDownstreamToken;
+    private final String orderDownstreamToken;
 
     public AuthFilter(
             TokenRevocationClient tokenRevocationClient,
             @Value("${gateway.security.service-token:}") String serviceToken,
-            @Value("${gateway.security.inventory-downstream-token:}") String inventoryDownstreamToken
+            @Value("${gateway.security.inventory-downstream-token:}") String inventoryDownstreamToken,
+            @Value("${gateway.security.order-downstream-token:}") String orderDownstreamToken
     ) {
         this.tokenRevocationClient = tokenRevocationClient;
         this.serviceToken = serviceToken;
         this.inventoryDownstreamToken = inventoryDownstreamToken;
+        this.orderDownstreamToken = orderDownstreamToken;
     }
 
     @Override
@@ -61,7 +64,7 @@ public class AuthFilter implements GlobalFilter, Ordered {
             ServerHttpRequest serviceRequest = sanitizedRequest.mutate()
                     .headers(headers -> headers.set("X-Service-Token", suppliedServiceToken))
                     .build();
-            return forwardInventoryRequest(exchange, chain, serviceRequest, path);
+            return forwardTrustedDownstreamRequest(exchange, chain, serviceRequest, path);
         }
 
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
@@ -89,7 +92,7 @@ public class AuthFilter implements GlobalFilter, Ordered {
                                 if (result.get()) {
                                     return reject(exchange, HttpStatus.UNAUTHORIZED);
                                 }
-                                return forwardInventoryRequest(exchange, chain, authenticatedRequest, path);
+                                return forwardTrustedDownstreamRequest(exchange, chain, authenticatedRequest, path);
                             });
                 }
             }
@@ -108,26 +111,42 @@ public class AuthFilter implements GlobalFilter, Ordered {
                 );
     }
 
-    private Mono<Void> forwardInventoryRequest(
+    private Mono<Void> forwardTrustedDownstreamRequest(
             ServerWebExchange exchange,
             GatewayFilterChain chain,
             ServerHttpRequest request,
             String path
     ) {
-        if (!isInventoryPath(path)) {
-            return chain.filter(exchange.mutate().request(request).build());
+        if (isInventoryPath(path)) {
+            return forwardWithDownstreamToken(exchange, chain, request, inventoryDownstreamToken);
         }
-        if (inventoryDownstreamToken == null || inventoryDownstreamToken.isBlank()) {
+        if (isOrderPath(path)) {
+            return forwardWithDownstreamToken(exchange, chain, request, orderDownstreamToken);
+        }
+        return chain.filter(exchange.mutate().request(request).build());
+    }
+
+    private Mono<Void> forwardWithDownstreamToken(
+            ServerWebExchange exchange,
+            GatewayFilterChain chain,
+            ServerHttpRequest request,
+            String downstreamToken
+    ) {
+        if (downstreamToken == null || downstreamToken.isBlank()) {
             return reject(exchange, HttpStatus.SERVICE_UNAVAILABLE);
         }
         ServerHttpRequest signedRequest = request.mutate()
-                .headers(headers -> headers.set("X-Gateway-Token", inventoryDownstreamToken))
+                .headers(headers -> headers.set("X-Gateway-Token", downstreamToken))
                 .build();
         return chain.filter(exchange.mutate().request(signedRequest).build());
     }
 
     private boolean isInventoryPath(String path) {
         return path.equals("/ws/inventory") || path.startsWith("/ws/inventory/");
+    }
+
+    private boolean isOrderPath(String path) {
+        return path.equals("/ws/orders") || path.startsWith("/ws/orders/");
     }
 
     private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status) {
