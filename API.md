@@ -929,3 +929,28 @@ Todas as rotas abaixo são serviço-a-serviço e têm paginação padrão de 20 
 | `GET /ws/inventory/analytics/movements?from={instant}&to={instant}` | Movimentações no período; aceita também `productId`, `movementType` e paginação. |
 
 Erros de validação retornam `400`, produtos/estoques não encontrados retornam `404`, conflitos de saldo e de estado retornam `409`, e chamadas internas sem credencial válida são rejeitadas pelo serviço ou pelo Gateway.
+
+## Fluxo de criação de produto no catálogo e no estoque
+
+O cadastro é uma operação coordenada entre `product-api` e `inventory-api`; atualmente, não existe uma transação distribuída nem criação automática de estoque junto com o produto. O backend responsável pelo fluxo deve executar estas etapas:
+
+1. **Criar o produto no catálogo** com `POST /ws/products`, enviando os dados comerciais, uma subcategoria ativa e o `productType` (`SINGLE_UNIT` ou `MULTI_UNIT`). A resposta `201 Created` inclui o `id` do produto; guarde esse identificador para os próximos passos.
+2. **Criar o registro de estoque** com `POST /ws/inventory/{productId}/registration`, substituindo `{productId}` pelo `id` retornado. O Inventory API consulta o tipo de produto no catálogo e cria o saldo inicial zerado. Esta chamada não altera o catálogo nem adiciona unidades.
+3. **Registrar o saldo físico inicial** com `POST /ws/inventory/{productId}/entries`, enviando uma quantidade positiva e um motivo, por exemplo:
+
+   ```json
+   {
+     "quantity": 10,
+     "reason": "Estoque inicial"
+   }
+   ```
+
+   A resposta informa o saldo físico, reservado e disponível. Entradas são registradas no histórico de movimentações.
+
+As três chamadas administrativas usam o JWT de um administrador encaminhado pelo Gateway. Não envie cabeçalhos internos `X-User-*` nem tokens serviço-a-serviço do cliente.
+
+**Falhas e retentativas:** como as etapas não são atômicas, uma falha depois da primeira chamada pode deixar o produto criado sem registro de estoque ou sem saldo. O backend deve persistir o progresso do fluxo e tratar cada resposta antes de avançar. A chamada de registro do estoque pode ser repetida para o mesmo produto; já a criação do produto e a entrada de saldo não oferecem chave de idempotência. Se o resultado de uma dessas chamadas for desconhecido por timeout, não a repita cegamente: consulte o catálogo, o estoque e o histórico de movimentações antes de decidir como retomar, para evitar produto duplicado ou entrada duplicada.
+
+O produto é criado ativo no catálogo antes de o estoque ser provisionado. Portanto, pode existir temporariamente um produto ativo sem estoque registrado; a disponibilidade comercial deve considerar tanto o status do catálogo quanto a disponibilidade retornada pelo Inventory API. Se o fluxo precisar garantir que nenhum produto seja exposto antes da conclusão do provisionamento, o sistema que o orquestra deve controlar essa publicação/ativação; o fluxo atual não fornece essa garantia atômica.
+
+Para `SINGLE_UNIT`, cadastre cada peça exclusiva como um produto distinto e registre no máximo uma unidade para cada `productId`. Para `MULTI_UNIT`, o saldo pode ser maior que uma unidade.
