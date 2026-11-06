@@ -56,10 +56,23 @@ public class InventoryMovementEntity {
             long quantityDelta,
             String reason
     ) {
+        this(inventory, movementType, quantityDelta, reason, null, null);
+    }
+
+    public InventoryMovementEntity(
+            InventoryEntity inventory,
+            MovementType movementType,
+            long quantityDelta,
+            String reason,
+            Long orderId,
+            Long reservationId
+    ) {
         this.inventory = inventory;
         this.movementType = movementType;
         this.quantityDelta = quantityDelta;
         this.reason = reason;
+        this.orderId = orderId;
+        this.reservationId = reservationId;
     }
 
     @PrePersist

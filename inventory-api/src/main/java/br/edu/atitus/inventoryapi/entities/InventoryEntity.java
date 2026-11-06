@@ -64,6 +64,22 @@ public class InventoryEntity {
         this.updatedAt = Instant.now();
     }
 
+    public void reserveQuantity(long quantity) {
+        this.quantityReserved = Math.addExact(quantityReserved, quantity);
+        this.updatedAt = Instant.now();
+    }
+
+    public void releaseReservedQuantity(long quantity) {
+        this.quantityReserved = Math.subtractExact(quantityReserved, quantity);
+        this.updatedAt = Instant.now();
+    }
+
+    public void confirmReservedQuantity(long quantity) {
+        this.quantityReserved = Math.subtractExact(quantityReserved, quantity);
+        this.quantityOnHand = Math.subtractExact(quantityOnHand, quantity);
+        this.updatedAt = Instant.now();
+    }
+
     public void setLowStockThreshold(long lowStockThreshold) {
         this.lowStockThreshold = lowStockThreshold;
         this.updatedAt = Instant.now();
