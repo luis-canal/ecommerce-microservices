@@ -141,125 +141,6 @@ Request:
 
 Para falha de autenticação, consulte os erros de [login](#login-de-usuário). Um usuário válido que não seja administrador recebe `403 Forbidden` ao tentar uma operação administrativa.
 
-## Estoque e reservas
-
-O `inventory-api` mantém quantidades físicas, reservas temporárias e movimentações. O `productId` é uma referência ao catálogo; dados comerciais e ativação do produto continuam sob responsabilidade do `product-api`. Disponibilidade no estoque é calculada como `quantityOnHand - quantityReserved` e não indica, isoladamente, que o produto está ativo para venda.
-
-As rotas administrativas exigem JWT de administrador. As consultas de disponibilidade, analytics e operações de reserva são destinadas a chamadas serviço-a-serviço: o Gateway injeta a credencial interna, que clientes externos não devem enviar nem configurar. A consulta individual de uma reserva também aceita acesso administrativo. Use o token JWT normalmente nas chamadas feitas pelo cliente ao Gateway.
-
-### Consultar estoque e disponibilidade
-
-| Método e rota | Acesso | Descrição |
-|---|---|---|
-| `GET /ws/inventory/{productId}` | Administrador | Consulta saldo, tipo, limite de estoque baixo e timestamps. |
-| `GET /ws/inventory` | Administrador | Lista com paginação e filtros `productType` e `lowStock`. |
-| `GET /ws/inventory/{productId}/availability` | Serviço interno | Consulta saldo e disponibilidade de um produto. |
-| `POST /ws/inventory/availability/batch` | Serviço interno | Consulta disponibilidade de até 500 produtos. |
-
-O endpoint de disponibilidade retorna o mesmo formato da consulta administrativa:
-
-```json
-{
-  "productId": 101,
-  "productType": "MULTI_UNIT",
-  "quantityOnHand": 10,
-  "quantityReserved": 3,
-  "availableQuantity": 7,
-  "lowStockThreshold": 0,
-  "lowStock": false,
-  "createdAt": "2026-01-15T12:00:00Z",
-  "updatedAt": "2026-01-15T12:00:00Z"
-}
-```
-
-Consulta em lote:
-
-```json
-{
-  "productIds": [101, 102]
-}
-```
-
-IDs duplicados, inválidos, lista vazia ou mais de 500 IDs resultam em `400 Bad Request`; se algum estoque não estiver cadastrado, a resposta é `404 Not Found`.
-
-### Administrar quantidades
-
-As operações de escrita abaixo exigem JWT de administrador. O estoque precisa estar registrado antes de receber movimentações. Para registrar o produto no estoque, use `POST /ws/inventory/{productId}/registration`; o serviço consulta `productType` no catálogo e não permite alterá-lo por uma operação administrativa de estoque.
-
-| Método e rota | Descrição |
-|---|---|
-| `POST /ws/inventory/{productId}/registration` | Registra o produto no estoque, se ainda não existir. |
-| `POST /ws/inventory/{productId}/entries` | Registra uma entrada física. |
-| `POST /ws/inventory/{productId}/exits` | Registra saída manual, limitada ao saldo não reservado. |
-| `POST /ws/inventory/{productId}/adjustments` | Define nova quantidade física, sem ficar abaixo do reservado. |
-| `PATCH /ws/inventory/{productId}/low-stock-threshold` | Configura o limite de estoque baixo. |
-| `GET /ws/inventory/{productId}/movements` | Consulta o histórico de movimentações do produto. |
-| `GET /ws/inventory/movements` | Consulta movimentações gerais. |
-
-Exemplo de entrada ou saída manual:
-
-```json
-{
-  "quantity": 5,
-  "reason": "Reposição de mercadoria"
-}
-```
-
-Exemplo de ajuste e de configuração do limite:
-
-```json
-{
-  "newQuantity": 12,
-  "reason": "Contagem física"
-}
-```
-
-```json
-{
-  "threshold": 3
-}
-```
-
-As consultas de movimentos aceitam `productId`, `movementType`, `from` e `to` (timestamps ISO-8601), além de `page`, `size` e `sort`. A consulta por produto também aceita os filtros de período e tipo. Tipos de movimento incluem `ENTRY`, `MANUAL_EXIT`, `ADJUSTMENT` e `RESERVATION_CONFIRMATION`; deltas negativos representam saídas.
-
-### Reservas de checkout
-
-As reservas são destinadas ao `order-api`. Uma criação reserva todos os itens ou nenhum; cada reserva expira após 10 minutos. Repetir a criação para o mesmo `orderId` e mesmos itens é idempotente; reutilizar o pedido com itens diferentes resulta em `409 Conflict`.
-
-| Método e rota | Acesso | Descrição |
-|---|---|---|
-| `POST /ws/inventory/reservations` | Serviço interno | Cria reserva temporária multi-item. |
-| `GET /ws/inventory/reservations/{reservationId}` | Serviço interno ou administrador | Consulta estado, prazo e itens da reserva. |
-| `POST /ws/inventory/reservations/{reservationId}/confirm` | Serviço interno | Confirma e baixa o estoque uma única vez. |
-| `POST /ws/inventory/reservations/{reservationId}/release` | Serviço interno | Libera quantidade reservada de forma idempotente. |
-
-Request para criar reserva:
-
-```json
-{
-  "orderId": 9001,
-  "items": [
-    { "productId": 101, "quantity": 3 },
-    { "productId": 102, "quantity": 1 }
-  ]
-}
-```
-
-A resposta contém `reservationId`, `orderId`, `status`, `expiresAt`, timestamps do ciclo de vida e os itens. Estados possíveis: `ACTIVE`, `CONFIRMED`, `RELEASED` e `EXPIRED`. Confirmar reserva expirada retorna `409 Conflict`; tentativas que excedam o disponível, incluindo concorrentes, também são rejeitadas sem reserva parcial. Para `SINGLE_UNIT`, estoque e quantidade solicitada não podem exceder uma unidade por `productId`.
-
-### Consultas para analytics
-
-Todas as rotas abaixo são serviço-a-serviço e têm paginação padrão de 20 itens, salvo o resumo.
-
-| Método e rota | Descrição |
-|---|---|
-| `GET /ws/inventory/analytics/summary` | Totais de itens cadastrados, quantidades física/reservada/disponível, sem estoque e baixo estoque. |
-| `GET /ws/inventory/analytics/out-of-stock` | Estoques cuja disponibilidade é zero. |
-| `GET /ws/inventory/analytics/low-stock` | Estoques cuja quantidade física está no limite configurado ou abaixo dele. |
-| `GET /ws/inventory/analytics/movements?from={instant}&to={instant}` | Movimentações no período; aceita também `productId`, `movementType` e paginação. |
-
-Erros de validação retornam `400`, produtos/estoques não encontrados retornam `404`, conflitos de saldo e de estado retornam `409`, e chamadas internas sem credencial válida são rejeitadas pelo serviço ou pelo Gateway.
-
 ## Logout e invalidação do token
 
 **`POST /auth/logout`**
@@ -929,3 +810,122 @@ Retorna o objeto de subcategoria com `active` atualizado.
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `404 Not Found` | Subcategoria não encontrada. | `"Subcategoria não encontrada"` |
 | `409 Conflict` | Tentativa de ativar sob categoria inativa. | `"Não é possível ativar uma subcategoria de uma categoria inativa"` |
+
+## Estoque e reservas
+
+O `inventory-api` mantém quantidades físicas, reservas temporárias e movimentações. O `productId` é uma referência ao catálogo; dados comerciais e ativação do produto continuam sob responsabilidade do `product-api`. Disponibilidade no estoque é calculada como `quantityOnHand - quantityReserved` e não indica, isoladamente, que o produto está ativo para venda.
+
+As rotas administrativas exigem JWT de administrador. As consultas de disponibilidade, analytics e operações de reserva são destinadas a chamadas serviço-a-serviço: o Gateway injeta a credencial interna, que clientes externos não devem enviar nem configurar. A consulta individual de uma reserva também aceita acesso administrativo. Use o token JWT normalmente nas chamadas feitas pelo cliente ao Gateway.
+
+### Consultar estoque e disponibilidade
+
+| Método e rota | Acesso | Descrição |
+|---|---|---|
+| `GET /ws/inventory/{productId}` | Administrador | Consulta saldo, tipo, limite de estoque baixo e timestamps. |
+| `GET /ws/inventory` | Administrador | Lista com paginação e filtros `productType` e `lowStock`. |
+| `GET /ws/inventory/{productId}/availability` | Serviço interno | Consulta saldo e disponibilidade de um produto. |
+| `POST /ws/inventory/availability/batch` | Serviço interno | Consulta disponibilidade de até 500 produtos. |
+
+O endpoint de disponibilidade retorna o mesmo formato da consulta administrativa:
+
+```json
+{
+  "productId": 101,
+  "productType": "MULTI_UNIT",
+  "quantityOnHand": 10,
+  "quantityReserved": 3,
+  "availableQuantity": 7,
+  "lowStockThreshold": 0,
+  "lowStock": false,
+  "createdAt": "2026-01-15T12:00:00Z",
+  "updatedAt": "2026-01-15T12:00:00Z"
+}
+```
+
+Consulta em lote:
+
+```json
+{
+  "productIds": [101, 102]
+}
+```
+
+IDs duplicados, inválidos, lista vazia ou mais de 500 IDs resultam em `400 Bad Request`; se algum estoque não estiver cadastrado, a resposta é `404 Not Found`.
+
+### Administrar quantidades
+
+As operações de escrita abaixo exigem JWT de administrador. O estoque precisa estar registrado antes de receber movimentações. Para registrar o produto no estoque, use `POST /ws/inventory/{productId}/registration`; o serviço consulta `productType` no catálogo e não permite alterá-lo por uma operação administrativa de estoque.
+
+| Método e rota | Descrição |
+|---|---|
+| `POST /ws/inventory/{productId}/registration` | Registra o produto no estoque, se ainda não existir. |
+| `POST /ws/inventory/{productId}/entries` | Registra uma entrada física. |
+| `POST /ws/inventory/{productId}/exits` | Registra saída manual, limitada ao saldo não reservado. |
+| `POST /ws/inventory/{productId}/adjustments` | Define nova quantidade física, sem ficar abaixo do reservado. |
+| `PATCH /ws/inventory/{productId}/low-stock-threshold` | Configura o limite de estoque baixo. |
+| `GET /ws/inventory/{productId}/movements` | Consulta o histórico de movimentações do produto. |
+| `GET /ws/inventory/movements` | Consulta movimentações gerais. |
+
+Exemplo de entrada ou saída manual:
+
+```json
+{
+  "quantity": 5,
+  "reason": "Reposição de mercadoria"
+}
+```
+
+Exemplo de ajuste e de configuração do limite:
+
+```json
+{
+  "newQuantity": 12,
+  "reason": "Contagem física"
+}
+```
+
+```json
+{
+  "threshold": 3
+}
+```
+
+As consultas de movimentos aceitam `productId`, `movementType`, `from` e `to` (timestamps ISO-8601), além de `page`, `size` e `sort`. A consulta por produto também aceita os filtros de período e tipo. Tipos de movimento incluem `ENTRY`, `MANUAL_EXIT`, `ADJUSTMENT` e `RESERVATION_CONFIRMATION`; deltas negativos representam saídas.
+
+### Reservas de checkout
+
+As reservas são destinadas ao `order-api`. Uma criação reserva todos os itens ou nenhum; cada reserva expira após 10 minutos. Repetir a criação para o mesmo `orderId` e mesmos itens é idempotente; reutilizar o pedido com itens diferentes resulta em `409 Conflict`.
+
+| Método e rota | Acesso | Descrição |
+|---|---|---|
+| `POST /ws/inventory/reservations` | Serviço interno | Cria reserva temporária multi-item. |
+| `GET /ws/inventory/reservations/{reservationId}` | Serviço interno ou administrador | Consulta estado, prazo e itens da reserva. |
+| `POST /ws/inventory/reservations/{reservationId}/confirm` | Serviço interno | Confirma e baixa o estoque uma única vez. |
+| `POST /ws/inventory/reservations/{reservationId}/release` | Serviço interno | Libera quantidade reservada de forma idempotente. |
+
+Request para criar reserva:
+
+```json
+{
+  "orderId": 9001,
+  "items": [
+    { "productId": 101, "quantity": 3 },
+    { "productId": 102, "quantity": 1 }
+  ]
+}
+```
+
+A resposta contém `reservationId`, `orderId`, `status`, `expiresAt`, timestamps do ciclo de vida e os itens. Estados possíveis: `ACTIVE`, `CONFIRMED`, `RELEASED` e `EXPIRED`. Confirmar reserva expirada retorna `409 Conflict`; tentativas que excedam o disponível, incluindo concorrentes, também são rejeitadas sem reserva parcial. Para `SINGLE_UNIT`, estoque e quantidade solicitada não podem exceder uma unidade por `productId`.
+
+### Consultas para analytics
+
+Todas as rotas abaixo são serviço-a-serviço e têm paginação padrão de 20 itens, salvo o resumo.
+
+| Método e rota | Descrição |
+|---|---|
+| `GET /ws/inventory/analytics/summary` | Totais de itens cadastrados, quantidades física/reservada/disponível, sem estoque e baixo estoque. |
+| `GET /ws/inventory/analytics/out-of-stock` | Estoques cuja disponibilidade é zero. |
+| `GET /ws/inventory/analytics/low-stock` | Estoques cuja quantidade física está no limite configurado ou abaixo dele. |
+| `GET /ws/inventory/analytics/movements?from={instant}&to={instant}` | Movimentações no período; aceita também `productId`, `movementType` e paginação. |
+
+Erros de validação retornam `400`, produtos/estoques não encontrados retornam `404`, conflitos de saldo e de estado retornam `409`, e chamadas internas sem credencial válida são rejeitadas pelo serviço ou pelo Gateway.
