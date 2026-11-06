@@ -2,6 +2,7 @@ package br.edu.atitus.inventoryapi.controllers;
 
 import br.edu.atitus.inventoryapi.dtos.AvailabilityBatchRequest;
 import br.edu.atitus.inventoryapi.dtos.InventoryAdjustmentRequest;
+import br.edu.atitus.inventoryapi.dtos.InventoryAnalyticsSummary;
 import br.edu.atitus.inventoryapi.dtos.InventoryMovementResponse;
 import br.edu.atitus.inventoryapi.dtos.InventoryResponse;
 import br.edu.atitus.inventoryapi.dtos.LowStockThresholdRequest;
@@ -74,6 +75,38 @@ public class InventoryController {
             @RequestBody AvailabilityBatchRequest request
     ) {
         return ResponseEntity.ok(inventoryService.getAvailability(request));
+    }
+
+    @GetMapping("/analytics/summary")
+    public ResponseEntity<InventoryAnalyticsSummary> analyticsSummary() {
+        return ResponseEntity.ok(inventoryService.getAnalyticsSummary());
+    }
+
+    @GetMapping("/analytics/out-of-stock")
+    public ResponseEntity<Page<InventoryResponse>> analyticsOutOfStock(
+            @PageableDefault(size = 20, sort = "productId") Pageable pageable
+    ) {
+        return ResponseEntity.ok(inventoryService.getOutOfStock(pageable));
+    }
+
+    @GetMapping("/analytics/low-stock")
+    public ResponseEntity<Page<InventoryResponse>> analyticsLowStock(
+            @PageableDefault(size = 20, sort = "productId") Pageable pageable
+    ) {
+        return ResponseEntity.ok(inventoryService.getLowStock(pageable));
+    }
+
+    @GetMapping("/analytics/movements")
+    public ResponseEntity<Page<InventoryMovementResponse>> analyticsMovements(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) Long productId,
+            @RequestParam(required = false) MovementType movementType,
+            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable
+    ) {
+        return ResponseEntity.ok(
+                inventoryService.searchMovements(productId, movementType, from, to, pageable)
+        );
     }
 
     @PostMapping("/{productId}/entries")

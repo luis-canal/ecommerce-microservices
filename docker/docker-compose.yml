@@ -100,6 +100,27 @@ services:
     restart: unless-stopped
 
   # ==========================================================
+  # BANCO DE DADOS - INVENTORY API
+  # ==========================================================
+  inventory-db:
+    image: postgres:17
+    container_name: inventory-db
+    environment:
+      POSTGRES_DB: db_inventory
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - inventory_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d db_inventory"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
   # PRODUCT API
   # ==========================================================
   product-api:
@@ -166,6 +187,30 @@ services:
     restart: unless-stopped
 
   # ==========================================================
+  # INVENTORY API
+  # ==========================================================
+  inventory-api:
+    build:
+      context: ../inventory-api
+    container_name: inventory-api
+    ports:
+      - "8003:8003"
+    environment:
+      SPRING_CONFIG_IMPORT: "consul:"
+      SPRING_CLOUD_CONSUL_HOST: consul
+      SPRING_CLOUD_CONSUL_PORT: 8500
+    depends_on:
+      consul-config:
+        condition: service_completed_successfully
+      inventory-db:
+        condition: service_healthy
+      product-api:
+        condition: service_started
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
   # GATEWAY API
   # ==========================================================
   gateway-api:
@@ -200,4 +245,5 @@ volumes:
   product_data:
   currency_data:
   auth_data:
+  inventory_data:
   auth_internal_secret:

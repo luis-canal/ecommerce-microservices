@@ -28,6 +28,23 @@ public interface InventoryRepository extends JpaRepository<InventoryEntity, Long
 
     @Query("""
             select i from InventoryEntity i
+            where i.quantityOnHand = i.quantityReserved
+            """)
+    Page<InventoryEntity> findOutOfStock(Pageable pageable);
+
+    @Query("""
+            select count(i) as inventoryCount,
+                   coalesce(sum(i.quantityOnHand), 0) as quantityOnHand,
+                   coalesce(sum(i.quantityReserved), 0) as quantityReserved,
+                   coalesce(sum(i.quantityOnHand - i.quantityReserved), 0) as availableQuantity,
+                   coalesce(sum(case when i.quantityOnHand = i.quantityReserved then 1 else 0 end), 0) as outOfStockCount,
+                   coalesce(sum(case when i.quantityOnHand <= i.lowStockThreshold then 1 else 0 end), 0) as lowStockCount
+            from InventoryEntity i
+            """)
+    InventorySummaryProjection getSummary();
+
+    @Query("""
+            select i from InventoryEntity i
             where (:productType is null or i.productType = :productType)
               and (:lowStock is null
                    or (:lowStock = true and i.quantityOnHand <= i.lowStockThreshold)

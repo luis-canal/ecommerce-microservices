@@ -140,6 +140,40 @@ if [ "${#AUTH_INTERNAL_SECRET}" -lt 32 ]; then
     exit 1
 fi
 
+SERVICE_AUTH_SECRET_FILE="/run/secrets/service_auth_token"
+if [ ! -s "$SERVICE_AUTH_SECRET_FILE" ]; then
+    umask 077
+    generated_secret="$(consul keygen)"
+    if [ "${#generated_secret}" -lt 32 ]; then
+        echo "Não foi possível gerar uma credencial serviço-a-serviço válida" >&2
+        exit 1
+    fi
+    printf '%s' "$generated_secret" > "$SERVICE_AUTH_SECRET_FILE"
+fi
+
+SERVICE_AUTH_TOKEN="$(cat "$SERVICE_AUTH_SECRET_FILE")"
+if [ "${#SERVICE_AUTH_TOKEN}" -lt 32 ]; then
+    echo "A credencial serviço-a-serviço persistida é inválida" >&2
+    exit 1
+fi
+
+GATEWAY_DOWNSTREAM_SECRET_FILE="/run/secrets/gateway_downstream_token"
+if [ ! -s "$GATEWAY_DOWNSTREAM_SECRET_FILE" ]; then
+    umask 077
+    generated_secret="$(consul keygen)"
+    if [ "${#generated_secret}" -lt 32 ]; then
+        echo "Não foi possível gerar uma credencial do Gateway válida" >&2
+        exit 1
+    fi
+    printf '%s' "$generated_secret" > "$GATEWAY_DOWNSTREAM_SECRET_FILE"
+fi
+
+GATEWAY_DOWNSTREAM_TOKEN="$(cat "$GATEWAY_DOWNSTREAM_SECRET_FILE")"
+if [ "${#GATEWAY_DOWNSTREAM_TOKEN}" -lt 32 ]; then
+    echo "A credencial do Gateway persistida é inválida" >&2
+    exit 1
+fi
+
 put "config/auth-api/server.port" "8200"
 put "config/auth-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
 
@@ -151,6 +185,31 @@ put "config/gateway-api/app.auth.internal-url" "http://auth-api:8200"
 put "config/auth-api/spring.datasource.url" "jdbc:postgresql://auth-db:5432/db_user"
 put "config/auth-api/spring.datasource.username" "postgres"
 put "config/auth-api/spring.datasource.password" "postgres"
+
+# Credenciais compartilhadas para chamadas internas.
+put "config/product-api/inventory.security.service-token" "$SERVICE_AUTH_TOKEN"
+put "config/inventory-api/inventory.security.service-token" "$SERVICE_AUTH_TOKEN"
+put "config/gateway-api/gateway.security.service-token" "$SERVICE_AUTH_TOKEN"
+
+put "config/inventory-api/inventory.security.gateway-token" "$GATEWAY_DOWNSTREAM_TOKEN"
+put "config/gateway-api/gateway.security.inventory-downstream-token" "$GATEWAY_DOWNSTREAM_TOKEN"
+
+
+# ==========================================================
+# INVENTORY API
+# ==========================================================
+
+put "config/inventory-api/server.port" "8003"
+
+# Banco de dados
+put "config/inventory-api/spring.datasource.url" \
+    "jdbc:postgresql://inventory-db:5432/db_inventory"
+put "config/inventory-api/spring.datasource.username" "postgres"
+put "config/inventory-api/spring.datasource.password" "postgres"
+
+# Integração com Product API e expiração das reservas.
+put "config/inventory-api/inventory.clients.product-api.base-url" "http://product-api"
+put "config/inventory-api/inventory.reservations.expiration-scan-ms" "30000"
 
 
 # ==========================================================

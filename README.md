@@ -2,21 +2,22 @@
 
 Projeto acadêmico de um **e-commerce de artigos gaúchos**, desenvolvido com arquitetura de microsserviços utilizando Java e Spring Boot.
 
-A aplicação é composta por quatro serviços independentes: autenticação, catálogo de produtos, conversão de moedas e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
+A aplicação é composta por cinco serviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
 
 O objetivo é construir uma base de e-commerce distribuída, explorando conceitos de desenvolvimento backend, APIs REST, autenticação, persistência de dados e comunicação entre microsserviços.
 
-Consulte [API.md](./API.md) para a documentação detalhada dos fluxos de autenticação e do catálogo de produtos.
+Consulte [API.md](./API.md) para a documentação detalhada dos fluxos de autenticação, catálogo de produtos e estoque.
 
 ## Arquitetura
 
-O projeto é organizado em quatro microsserviços:
+O projeto é organizado em cinco microsserviços:
 
 | Serviço | Responsabilidade |
 |---|---|
 | `gateway-api` | Ponto de entrada da aplicação, roteamento e validação de JWT nas rotas protegidas. |
 | `auth-api` | Cadastro de usuários, autenticação e emissão de tokens JWT. |
 | `product-api` | Consulta e gerenciamento do ciclo de vida de produtos. |
+| `inventory-api` | Estoque físico, disponibilidade, movimentações e reservas temporárias. |
 | `currency-api` | Consulta de taxas cambiais e conversão de moedas. |
 
 ### Fluxo de comunicação
@@ -31,16 +32,15 @@ O catálogo também se comunica com o serviço de moedas quando precisa apresent
                        v
                  GATEWAY API
                        |
-          +------------+------------+
-          |            |            |
-          v            v            v
-       AUTH API    PRODUCT API   CURRENCY API
-                       |            |
-                       +------------+
-                            |
-                            v
-                       BANCO CENTRAL
-                         (PTAX)
+          +-----------+-----------+-----------+
+          |           |           |           |
+          v           v           v           v
+       AUTH API   PRODUCT API  INVENTORY API CURRENCY API
+                       |           |           |
+                       +-----------+           v
+                                   |       BANCO CENTRAL
+                                   |         (PTAX)
+                             INVENTORY DB
 ```
 
 Cada microsserviço possui sua própria responsabilidade e configuração de persistência.
@@ -97,7 +97,7 @@ Responsável pela consulta e pelo ciclo de vida dos produtos do catálogo.
 - Conversão de preços para outras moedas.
 - Cadastro de produtos restrito a administradores.
 - Edição, desativação e reativação de produtos restritas a administradores.
-- Classificação dos produtos como unitários ou multi-unitários; o controle de quantidades pertence ao futuro `inventory-api`.
+- Classificação dos produtos como unitários ou multi-unitários; o controle das quantidades é responsabilidade do `inventory-api`.
 - Produtos inativos não são exibidos nas consultas públicas.
 - Validação de campos obrigatórios e preços positivos.
 - Carregamento de dados iniciais por migrações Flyway.
@@ -134,7 +134,20 @@ Para consultar um produto específico com o preço convertido:
 GET /products/1?targetCurrency=USD
 ```
 
-### 3. Conversão de moedas — `currency-api`
+### 3. Estoque e reservas — `inventory-api`
+
+Responsável pela quantidade física, disponibilidade comercial do estoque, histórico de movimentações e ciclo de vida das reservas iniciadas pelo checkout.
+
+- Calcula disponibilidade como quantidade física menos quantidade reservada.
+- Impede reservas acima do saldo disponível com operações transacionais e bloqueios no banco.
+- Diferencia produtos `SINGLE_UNIT` e `MULTI_UNIT`; o tipo é consultado no `product-api`.
+- Registra entradas, saídas manuais, ajustes e baixas de reservas em um histórico imutável de movimentações.
+- Cria reservas para vários produtos atomicamente, com expiração em 10 minutos.
+- Confirma, libera e expira reservas sem permitir dupla baixa ou dupla liberação.
+
+O serviço e seu PostgreSQL utilizam, respectivamente, as portas 8003 e 5432 na rede Docker. Os endpoints estão detalhados em [API.md](./API.md).
+
+### 4. Conversão de moedas — `currency-api`
 
 Responsável por fornecer as taxas de conversão utilizadas pelo catálogo.
 
@@ -161,7 +174,7 @@ GET /currencies?source=USD&target=BRL
 
 A resposta contém as moedas de origem e destino, a taxa de conversão e informações do ambiente de execução.
 
-### 4. API Gateway — `gateway-api`
+### 5. API Gateway — `gateway-api`
 
 Responsável por centralizar o acesso externo aos microsserviços.
 
@@ -176,7 +189,7 @@ Responsável por centralizar o acesso externo aos microsserviços.
 
 As rotas protegidas utilizam o prefixo `/ws/**`.
 
-O gateway possui rotas configuradas para autenticação, produtos, moedas e operações protegidas.
+O gateway possui rotas configuradas para autenticação, produtos, moedas, estoque e operações protegidas. Nas chamadas ao `inventory-api`, ele encaminha a credencial interna de downstream; chamadas entre serviços também usam credencial serviço-a-serviço.
 
 ## Segurança
 
@@ -192,7 +205,7 @@ O gateway valida o token e encaminha os dados de identidade do usuário aos serv
 
 O cadastro de produtos é restrito a usuários administradores. Usuários autenticados sem essa permissão recebem uma resposta de acesso negado.
 
-**Observação:** a validação de JWT descrita está concentrada no Gateway. Os microsserviços não devem ser considerados protegidos contra acesso direto apenas por essa configuração. A externalização das chaves e o endurecimento da segurança entre serviços são pontos importantes antes de qualquer implantação em produção.
+O `inventory-api` valida uma credencial privada do Gateway em todas as rotas e exige autenticação serviço-a-serviço nas operações internas. Em produção, configure Consul com ACL/TLS e um gerenciador de segredos; os demais microsserviços ainda devem ser protegidos contra acesso direto conforme forem integrados.
 
 ## Banco de dados e persistência
 
@@ -211,6 +224,7 @@ Os bancos utilizados incluem:
 - `db_currency`
 - `db_product`
 - `db_user`
+- `db_inventory`
 
 As configurações de conexão devem corresponder às propriedades de cada serviço.
 
@@ -218,7 +232,7 @@ As configurações de conexão devem corresponder às propriedades de cada servi
 
 O projeto utiliza HashiCorp Consul como parte da infraestrutura de configuração e descoberta de serviços.
 
-O arquivo `start_consul.bat` auxilia na inicialização do Consul em ambiente Windows e no cadastro das propriedades utilizadas pelos microsserviços.
+O `load-config.sh`, executado pelo Docker Compose, cadastra no Consul as propriedades utilizadas pelos microsserviços e provisiona credenciais internas para as integrações.
 
 As configurações incluem propriedades de execução, conexão com PostgreSQL e parâmetros de integração com serviços externos.
 
@@ -235,6 +249,18 @@ Para executar o projeto localmente, são necessários:
 - Git.
 
 As portas e propriedades de cada serviço devem ser verificadas nos respectivos arquivos de configuração.
+
+## Executando com Docker Compose
+
+O Compose sobe Consul, carrega as configurações por [`load-config.sh`](./docker/consul/config/load-config.sh), inicia os bancos e constrói os serviços:
+
+```bash
+docker compose -f docker/docker-compose.yml up --build
+```
+
+O script gera três segredos se ainda não existirem, grava-os no volume `auth_internal_secret` e publica os valores no KV do Consul. A mesma credencial de serviço é compartilhada pelo `gateway-api`, `product-api` e `inventory-api`; a credencial de encaminhamento do Gateway é compartilhada pelo `gateway-api` e `inventory-api`. Os valores são preservados enquanto o volume existir. Não execute `docker compose down -v` se quiser conservar as credenciais e os dados dos bancos.
+
+O Consul configurado com `-dev` é para desenvolvimento local; ele não persiste suas chaves após a remoção/recriação do container. O script repopula o KV ao iniciar o Compose, usando as credenciais persistidas. Em produção, use Consul com ACL/TLS e um gerenciador de segredos apropriado em vez do modo de desenvolvimento.
 
 ## Executando localmente
 
@@ -289,6 +315,13 @@ cd product-api
 
 ```bash
 cd currency-api
+./mvnw spring-boot:run
+```
+
+**Inventory API**
+
+```bash
+cd inventory-api
 ./mvnw spring-boot:run
 ```
 
@@ -354,6 +387,8 @@ GET /currencies?source=USD&target=BRL
 
 Para as rotas protegidas, utilize o JWT recebido no login.
 
+Os endpoints de disponibilidade e reservas também são protegidos por credencial de serviço. Chamadas entre serviços devem passar pelo Gateway usando a credencial interna provisionada no Consul; não exponha ou envie esses segredos a clientes externos.
+
 Os exemplos de endpoints devem ser enviados ao endereço e à porta configurados para o Gateway ou para o serviço correspondente, conforme o teste desejado.
 
 ## Estrutura do repositório
@@ -369,6 +404,8 @@ ecommerce-microservices/
 │
 ├── currency-api/
 │   └── Serviço de conversão de moedas
+├── inventory-api/
+│   └── Serviço de controle de estoque e reservas
 │
 ├── gateway-api/
 │   └── Gateway e roteamento das requisições

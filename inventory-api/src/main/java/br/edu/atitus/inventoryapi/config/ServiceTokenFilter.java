@@ -27,6 +27,7 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return !(path.startsWith("/ws/inventory/reservations")
                 || path.startsWith("/ws/inventory/availability")
+                || path.startsWith("/ws/inventory/analytics")
                 || path.matches("/ws/inventory/[0-9]+/availability"));
     }
 
@@ -36,6 +37,11 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain
     ) throws ServletException, IOException {
+        if (isAdminReservationRead(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (serviceToken == null || serviceToken.isBlank()) {
             response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), "Autenticação serviço-a-serviço não configurada.");
             return;
@@ -51,5 +57,11 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isAdminReservationRead(HttpServletRequest request) {
+        return "GET".equals(request.getMethod())
+                && request.getRequestURI().matches("/ws/inventory/reservations/[0-9]+")
+                && "0".equals(request.getHeader("X-User-Type"));
     }
 }

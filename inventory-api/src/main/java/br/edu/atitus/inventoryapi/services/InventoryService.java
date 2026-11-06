@@ -4,6 +4,7 @@ import br.edu.atitus.inventoryapi.dtos.AvailabilityBatchRequest;
 import br.edu.atitus.inventoryapi.dtos.InventoryAdjustmentRequest;
 import br.edu.atitus.inventoryapi.dtos.InventoryMovementResponse;
 import br.edu.atitus.inventoryapi.dtos.InventoryResponse;
+import br.edu.atitus.inventoryapi.dtos.InventoryAnalyticsSummary;
 import br.edu.atitus.inventoryapi.dtos.LowStockThresholdRequest;
 import br.edu.atitus.inventoryapi.dtos.StockMovementRequest;
 import br.edu.atitus.inventoryapi.clients.ProductApiClient;
@@ -73,6 +74,26 @@ public class InventoryService {
     ) {
         return inventoryRepository.search(productType, lowStock, pageable)
                 .map(InventoryResponse::from);
+    }
+
+    public InventoryAnalyticsSummary getAnalyticsSummary() {
+        var summary = inventoryRepository.getSummary();
+        return new InventoryAnalyticsSummary(
+                summary.getInventoryCount(),
+                summary.getQuantityOnHand(),
+                summary.getQuantityReserved(),
+                summary.getAvailableQuantity(),
+                summary.getOutOfStockCount(),
+                summary.getLowStockCount()
+        );
+    }
+
+    public Page<InventoryResponse> getOutOfStock(Pageable pageable) {
+        return inventoryRepository.findOutOfStock(pageable).map(InventoryResponse::from);
+    }
+
+    public Page<InventoryResponse> getLowStock(Pageable pageable) {
+        return inventoryRepository.search(null, true, pageable).map(InventoryResponse::from);
     }
 
     public InventoryResponse getAvailability(Long productId) {
