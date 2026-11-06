@@ -6,6 +6,7 @@ import br.edu.atitus.inventoryapi.dtos.InventoryMovementResponse;
 import br.edu.atitus.inventoryapi.dtos.InventoryResponse;
 import br.edu.atitus.inventoryapi.dtos.LowStockThresholdRequest;
 import br.edu.atitus.inventoryapi.dtos.StockMovementRequest;
+import br.edu.atitus.inventoryapi.clients.ProductApiClient;
 import br.edu.atitus.inventoryapi.entities.InventoryEntity;
 import br.edu.atitus.inventoryapi.entities.InventoryMovementEntity;
 import br.edu.atitus.inventoryapi.enums.MovementType;
@@ -33,18 +34,22 @@ public class InventoryService {
 
     private final InventoryRepository inventoryRepository;
     private final InventoryMovementRepository movementRepository;
+    private final ProductApiClient productApiClient;
 
     public InventoryService(
             InventoryRepository inventoryRepository,
-            InventoryMovementRepository movementRepository
+            InventoryMovementRepository movementRepository,
+            ProductApiClient productApiClient
     ) {
         this.inventoryRepository = inventoryRepository;
         this.movementRepository = movementRepository;
+        this.productApiClient = productApiClient;
     }
 
     @Transactional
-    public InventoryResponse registerProduct(Long productId, ProductType productType) {
+    public InventoryResponse registerProduct(Long productId) {
         validateProductId(productId);
+        ProductType productType = productApiClient.getProductType(productId);
         if (productType == null) {
             throw badRequest("O tipo de produto é obrigatório.");
         }

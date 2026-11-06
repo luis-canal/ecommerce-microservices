@@ -8,6 +8,7 @@ import br.edu.atitus.inventoryapi.dtos.LowStockThresholdRequest;
 import br.edu.atitus.inventoryapi.dtos.StockMovementRequest;
 import br.edu.atitus.inventoryapi.enums.MovementType;
 import br.edu.atitus.inventoryapi.enums.ProductType;
+import br.edu.atitus.inventoryapi.services.InventoryAuthorizationService;
 import br.edu.atitus.inventoryapi.services.InventoryService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,13 +34,22 @@ import java.util.List;
 public class InventoryController {
 
     private final InventoryService inventoryService;
+    private final InventoryAuthorizationService authorizationService;
 
-    public InventoryController(InventoryService inventoryService) {
+    public InventoryController(
+            InventoryService inventoryService,
+            InventoryAuthorizationService authorizationService
+    ) {
         this.inventoryService = inventoryService;
+        this.authorizationService = authorizationService;
     }
 
     @GetMapping("/{productId}")
-    public ResponseEntity<InventoryResponse> getInventory(@PathVariable Long productId) {
+    public ResponseEntity<InventoryResponse> getInventory(
+            @PathVariable Long productId,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
+    ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(inventoryService.getInventory(productId));
     }
 
@@ -46,8 +57,10 @@ public class InventoryController {
     public ResponseEntity<Page<InventoryResponse>> list(
             @RequestParam(required = false) ProductType productType,
             @RequestParam(required = false) Boolean lowStock,
-            @PageableDefault(size = 20, sort = "productId") Pageable pageable
+            @PageableDefault(size = 20, sort = "productId") Pageable pageable,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
     ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(inventoryService.search(productType, lowStock, pageable));
     }
 
@@ -66,33 +79,50 @@ public class InventoryController {
     @PostMapping("/{productId}/entries")
     public ResponseEntity<InventoryResponse> registerEntry(
             @PathVariable Long productId,
-            @RequestBody StockMovementRequest request
+            @RequestBody StockMovementRequest request,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
     ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(inventoryService.registerEntry(productId, request));
     }
 
     @PostMapping("/{productId}/exits")
     public ResponseEntity<InventoryResponse> registerManualExit(
             @PathVariable Long productId,
-            @RequestBody StockMovementRequest request
+            @RequestBody StockMovementRequest request,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
     ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(inventoryService.registerManualExit(productId, request));
     }
 
     @PostMapping("/{productId}/adjustments")
     public ResponseEntity<InventoryResponse> adjust(
             @PathVariable Long productId,
-            @RequestBody InventoryAdjustmentRequest request
+            @RequestBody InventoryAdjustmentRequest request,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
     ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(inventoryService.adjust(productId, request));
     }
 
     @PatchMapping("/{productId}/low-stock-threshold")
     public ResponseEntity<InventoryResponse> setLowStockThreshold(
             @PathVariable Long productId,
-            @RequestBody LowStockThresholdRequest request
+            @RequestBody LowStockThresholdRequest request,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
     ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(inventoryService.setLowStockThreshold(productId, request));
+    }
+
+    @PostMapping("/{productId}/registration")
+    public ResponseEntity<InventoryResponse> registerProduct(
+            @PathVariable Long productId,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
+    ) {
+        authorizationService.requireAdmin(userType);
+        return ResponseEntity.ok(inventoryService.registerProduct(productId));
     }
 
     @GetMapping("/{productId}/movements")
@@ -101,8 +131,10 @@ public class InventoryController {
             @RequestParam(required = false) MovementType movementType,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
-            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable
+            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
     ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(
                 inventoryService.getProductMovements(productId, movementType, from, to, pageable)
         );
@@ -114,8 +146,10 @@ public class InventoryController {
             @RequestParam(required = false) MovementType movementType,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
-            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable
+            @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC) Pageable pageable,
+            @RequestHeader(name = "X-User-Type", required = false) Integer userType
     ) {
+        authorizationService.requireAdmin(userType);
         return ResponseEntity.ok(
                 inventoryService.searchMovements(productId, movementType, from, to, pageable)
         );
