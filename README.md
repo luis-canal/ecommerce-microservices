@@ -22,7 +22,7 @@ O projeto é organizado em cinco microsserviços:
 
 ### Fluxo de comunicação
 
-As requisições externas são recebidas pelo Gateway, que encaminha as chamadas ao microsserviço responsável.
+Todas as requisições externas às APIs devem passar pelo Gateway na porta `8080` (por exemplo, `http://localhost:8080`). As portas próprias dos microsserviços são internas à rede Docker para descoberta e comunicação entre serviços; não as utilize como portas de entrada para clientes.
 
 O catálogo também se comunica com o serviço de moedas quando precisa apresentar um produto em uma moeda diferente da original.
 
@@ -189,7 +189,7 @@ Responsável por centralizar o acesso externo aos microsserviços.
 
 As rotas protegidas utilizam o prefixo `/ws/**`.
 
-O gateway possui rotas configuradas para autenticação, produtos, moedas, estoque e operações protegidas. Nas chamadas ao `inventory-api`, ele encaminha a credencial interna de downstream; chamadas entre serviços também usam credencial serviço-a-serviço.
+O gateway possui rotas configuradas para autenticação, produtos, moedas, estoque, pedidos e operações protegidas. Nas chamadas ao `inventory-api`, ele encaminha a credencial interna de downstream; chamadas entre serviços também usam credencial serviço-a-serviço.
 
 ## Segurança
 
@@ -248,7 +248,7 @@ Para executar o projeto localmente, são necessários:
 - HashiCorp Consul.
 - Git.
 
-As portas e propriedades de cada serviço devem ser verificadas nos respectivos arquivos de configuração.
+Para requisições de clientes, utilize somente a porta `8080` do Gateway. As portas dos microsserviços e dos bancos são internas à rede Docker; a interface do Consul continua disponível na porta `8500` para configuração e administração local.
 
 ## Executando com Docker Compose
 
@@ -336,7 +336,7 @@ No Windows, utilize `mvnw.cmd` no lugar de `./mvnw`.
 
 As migrações Flyway são executadas automaticamente durante a inicialização, conforme a configuração de cada serviço.
 
-> A inicialização depende de PostgreSQL, configurações necessárias no Consul e disponibilidade dos serviços utilizados na comunicação interna. Confira as portas configuradas antes de realizar as requisições.
+> A inicialização depende de PostgreSQL, configurações necessárias no Consul e disponibilidade dos serviços utilizados na comunicação interna. Envie as requisições da aplicação para o Gateway em `http://localhost:8080`; as portas individuais dos microsserviços não são publicadas no host.
 
 ## Testando as APIs
 

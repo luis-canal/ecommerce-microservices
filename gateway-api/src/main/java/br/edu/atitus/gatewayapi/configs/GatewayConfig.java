@@ -34,6 +34,9 @@ public class GatewayConfig {
                 .route("inventory-api-ws", route -> route
                         .path("/ws/inventory/**")
                         .uri("lb://inventory-api"))
+                .route("order-api-ws", route -> route
+                        .path("/ws/orders/**")
+                        .uri("lb://order-api"))
                 .build();
     }
 }

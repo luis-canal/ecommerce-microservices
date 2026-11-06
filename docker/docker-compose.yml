@@ -121,14 +121,33 @@ services:
     restart: unless-stopped
 
   # ==========================================================
+  # BANCO DE DADOS - ORDER API
+  # ==========================================================
+  order-db:
+    image: postgres:17
+    container_name: order-db
+    environment:
+      POSTGRES_DB: db_order
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - order_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d db_order"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
   # PRODUCT API
   # ==========================================================
   product-api:
     build:
       context: ../product-api
     container_name: product-api
-    ports:
-      - "8000:8000"
     environment:
       SPRING_CONFIG_IMPORT: "consul:"
       SPRING_CLOUD_CONSUL_HOST: consul
@@ -149,8 +168,6 @@ services:
     build:
       context: ../currency-api
     container_name: currency-api
-    ports:
-      - "8100:8100"
     environment:
       SPRING_CONFIG_IMPORT: "consul:"
       SPRING_CLOUD_CONSUL_HOST: consul
@@ -171,8 +188,6 @@ services:
     build:
       context: ../auth-api
     container_name: auth-api
-    ports:
-      - "8200:8200"
     environment:
       SPRING_CONFIG_IMPORT: "consul:"
       SPRING_CLOUD_CONSUL_HOST: consul
@@ -193,8 +208,6 @@ services:
     build:
       context: ../inventory-api
     container_name: inventory-api
-    ports:
-      - "8003:8003"
     environment:
       SPRING_CONFIG_IMPORT: "consul:"
       SPRING_CLOUD_CONSUL_HOST: consul
@@ -206,6 +219,26 @@ services:
         condition: service_healthy
       product-api:
         condition: service_started
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
+  # ORDER API
+  # ==========================================================
+  order-api:
+    build:
+      context: ../order-api
+    container_name: order-api
+    environment:
+      SPRING_CONFIG_IMPORT: "consul:"
+      SPRING_CLOUD_CONSUL_HOST: consul
+      SPRING_CLOUD_CONSUL_PORT: 8500
+    depends_on:
+      consul-config:
+        condition: service_completed_successfully
+      order-db:
+        condition: service_healthy
     networks:
       - backend
     restart: unless-stopped
@@ -246,4 +279,5 @@ volumes:
   currency_data:
   auth_data:
   inventory_data:
+  order_data:
   auth_internal_secret:
