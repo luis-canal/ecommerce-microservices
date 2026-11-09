@@ -31,6 +31,48 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     @EntityGraph(attributePaths = "items")
     Optional<OrderEntity> findWithItemsById(Long id);
 
+    @EntityGraph(attributePaths = "items")
+    Optional<OrderEntity> findWithItemsByCustomerIdAndId(Long customerId, Long id);
+
+    @Query(
+            value = """
+                    select o.id from OrderEntity o
+                    where (:orderId is null or o.id = :orderId)
+                      and (:status is null or o.status = :status)
+                      and (:customerId is null or o.customerId = :customerId)
+                      and (:createdFrom is null or o.orderDate >= :createdFrom)
+                      and (:createdTo is null or o.orderDate <= :createdTo)
+                      and (:confirmedFrom is null or o.confirmedAt >= :confirmedFrom)
+                      and (:confirmedTo is null or o.confirmedAt <= :confirmedTo)
+                    """,
+            countQuery = """
+                    select count(o.id) from OrderEntity o
+                    where (:orderId is null or o.id = :orderId)
+                      and (:status is null or o.status = :status)
+                      and (:customerId is null or o.customerId = :customerId)
+                      and (:createdFrom is null or o.orderDate >= :createdFrom)
+                      and (:createdTo is null or o.orderDate <= :createdTo)
+                      and (:confirmedFrom is null or o.confirmedAt >= :confirmedFrom)
+                      and (:confirmedTo is null or o.confirmedAt <= :confirmedTo)
+                    """
+    )
+    Page<Long> findIdsForAdmin(
+            @Param("orderId") Long orderId,
+            @Param("status") OrderStatus status,
+            @Param("customerId") Long customerId,
+            @Param("createdFrom") Instant createdFrom,
+            @Param("createdTo") Instant createdTo,
+            @Param("confirmedFrom") Instant confirmedFrom,
+            @Param("confirmedTo") Instant confirmedTo,
+            Pageable pageable
+    );
+
+    @Query(
+            value = "select o.id from OrderEntity o where o.updatedAt >= :updatedAfter",
+            countQuery = "select count(o.id) from OrderEntity o where o.updatedAt >= :updatedAfter"
+    )
+    Page<Long> findIdsUpdatedAfter(@Param("updatedAfter") Instant updatedAfter, Pageable pageable);
+
     List<OrderEntity> findByStatusAndReservationExpiresAtBefore(
             OrderStatus status,
             Instant expiresAt

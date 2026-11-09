@@ -21,6 +21,7 @@ public class OrderPersistenceService {
     public OrderEntity savePending(OrderEntity order) {
         order.setStatus(OrderStatus.RESERVATION_PENDING);
         order.setOrderDate(Instant.now());
+        order.setUpdatedAt(order.getOrderDate());
         return orderRepository.saveAndFlush(order);
     }
 
@@ -35,6 +36,7 @@ public class OrderPersistenceService {
         order.setReservationId(reservationId);
         order.setReservationExpiresAt(expiresAt);
         order.setStatus(status);
+        order.setUpdatedAt(Instant.now());
         return orderRepository.save(order);
     }
 
@@ -47,6 +49,7 @@ public class OrderPersistenceService {
     public OrderEntity updateStatus(Long orderId, OrderStatus status) {
         OrderEntity order = orderRepository.findWithItemsById(orderId).orElseThrow();
         order.setStatus(status);
+        order.setUpdatedAt(Instant.now());
         if (status == OrderStatus.CONFIRMED) {
             order.setConfirmedAt(Instant.now());
         } else if (status == OrderStatus.CANCELLED) {

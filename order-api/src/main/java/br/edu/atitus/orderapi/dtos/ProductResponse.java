@@ -18,7 +18,7 @@ public record ProductResponse(
         Long categoryId,
         String categoryName,
         String productType,
-        boolean active,
+        Boolean active,
         String environment,
         String promotionMessage,
         String targetCurrency,
@@ -31,17 +31,21 @@ public record ProductResponse(
                 item.getProductBrand(),
                 item.getProductModel(),
                 item.getProductDescription(),
-                item.getCurrencyAtPurchase(),
-                item.getPriceAtPurchase(),
+                item.getCatalogCurrencyAtPurchase() == null
+                        ? item.getCurrencyAtPurchase()
+                        : item.getCatalogCurrencyAtPurchase(),
+                item.getCatalogPriceAtPurchase() == null
+                        ? item.getPriceAtPurchase()
+                        : item.getCatalogPriceAtPurchase(),
                 item.getProductImage(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                true,
-                null,
-                null,
+                item.getSubcategoryId(),
+                item.getSubcategoryName(),
+                item.getCategoryId(),
+                item.getCategoryName(),
+                item.getProductType(),
+                item.getProductActive(),
+                item.getProductEnvironment(),
+                item.getPromotionMessage(),
                 targetCurrency,
                 convertedPrice
         );

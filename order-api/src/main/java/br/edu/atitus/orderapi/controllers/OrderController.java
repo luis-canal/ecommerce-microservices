@@ -1,6 +1,7 @@
 package br.edu.atitus.orderapi.controllers;
 
 import br.edu.atitus.orderapi.dtos.OrderDTO;
+import br.edu.atitus.orderapi.dtos.AnalyticsOrderResponse;
 import br.edu.atitus.orderapi.entities.OrderEntity;
 import br.edu.atitus.orderapi.services.OrderService;
 import org.springframework.data.domain.Page;
@@ -11,6 +12,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/ws/orders")
@@ -45,6 +48,27 @@ public class OrderController {
         requireCustomer(userType);
         Page<OrderEntity> orders = orderService.findOrdersByCustomerId(userId, targetCurrency, pageable);
         return ResponseEntity.ok(orders);
+    }
+
+    @GetMapping("/{orderId}")
+    public ResponseEntity<OrderEntity> findOrderByUser(
+            @PathVariable Long orderId,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestHeader("X-User-Type") Integer userType
+    ) {
+        requireCustomer(userType);
+        return ResponseEntity.ok(orderService.findOrderByCustomerIdAndId(userId, orderId));
+    }
+
+    @GetMapping("/internal/analytics")
+    public ResponseEntity<Page<AnalyticsOrderResponse>> listOrdersForAnalytics(
+            @RequestParam Instant updatedAfter,
+            @PageableDefault(page = 0, size = 100, sort = {"updatedAt", "id"}, direction = Direction.ASC)
+            Pageable pageable
+    ) {
+        Page<AnalyticsOrderResponse> response = orderService.findOrdersUpdatedAfter(updatedAfter, pageable)
+                .map(AnalyticsOrderResponse::fromEntity);
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{orderId}/confirm")

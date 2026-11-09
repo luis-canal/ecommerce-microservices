@@ -957,15 +957,15 @@ Para `SINGLE_UNIT`, cadastre cada peça exclusiva como um produto distinto e reg
 
 ## Pedidos
 
-O `order-api` registra pedidos de clientes e coordena a reserva de estoque. Requisições de clientes devem entrar pelo Gateway (`:8080`); não exponha diretamente a porta interna do serviço. As chamadas do Order API para Product, Currency e Inventory usam descoberta pelo Consul na rede interna, sem passar novamente pelo Gateway.
+O `order-api` registra pedidos e coordena a reserva de estoque. Requisições de clientes e administradores devem entrar pelo Gateway (`:8080`); não exponha diretamente a porta interna do serviço. As chamadas do Order API para Product, Currency e Inventory usam descoberta pelo Consul na rede interna, sem passar novamente pelo Gateway.
 
-O Order API valida cada produto no catálogo, congela os dados essenciais e o preço convertido para BRL no momento da compra, persiste um pedido provisório e só o disponibiliza como `PENDING_PAYMENT` depois de obter a reserva atômica de todos os itens no Inventory API. O preço guardado não muda se o catálogo ou a cotação forem alterados depois.
+No checkout, o Order API valida cada produto no catálogo, persiste um snapshot dos dados disponíveis do produto e seu preço convertido para BRL, grava o endereço de entrega e calcula os valores do pedido. Em seguida, cria uma reserva atômica de todos os itens no Inventory API. O pedido só passa a `PENDING_PAYMENT` após receber uma reserva ativa. Consultas históricas usam o snapshot persistido e não dependem de o produto ou endereço ainda existirem ou estarem ativos nos serviços de origem.
 
 ### Criar pedido
 
 **`POST /ws/orders`**
 
-**Autenticação:** cliente autenticado. O Gateway deriva a identidade do JWT e exige perfil de cliente.
+**Autenticação:** cliente autenticado. O Gateway deriva a identidade do JWT; o Order API exige perfil de cliente.
 
 **Headers**
 
@@ -975,51 +975,82 @@ O Order API valida cada produto no catálogo, congela os dados essenciais e o pr
 | `Idempotency-Key` | string | Recomendado | Chave de até 128 caracteres para tornar repetível uma tentativa após timeout. A mesma chave e o mesmo conteúdo retornam o pedido existente; a mesma chave com itens diferentes resulta em `409 Conflict`. |
 | `Content-Type` | string | Sim | `application/json`. |
 
-O corpo deve conter entre 1 e 100 itens, com `productId` e `quantity` positivos e sem IDs duplicados:
+O corpo deve conter entre 1 e 100 itens, com `productId` e `quantity` positivos, sem IDs duplicados, e um endereço de entrega:
 
 ```json
 {
   "items": [
     { "productId": 101, "quantity": 3 },
     { "productId": 102, "quantity": 1 }
-  ]
+  ],
+  "shippingAddress": {
+    "zipCode": "99000-000",
+    "street": "Rua das Flores",
+    "number": "150",
+    "complement": "Apartamento 202",
+    "neighborhood": "Centro",
+    "city": "Passo Fundo",
+    "state": "RS"
+  }
 }
 ```
 
+`zipCode`, `street`, `number`, `neighborhood`, `city` e `state` são obrigatórios. `complement` é opcional. O CEP deve ter oito dígitos, com hífen opcional; `state` deve ser uma UF brasileira válida. O endereço é armazenado no pedido e não é consultado novamente no cadastro do cliente.
+
+O frete inicial é fixo por região: Sul R$ 20,00; Sudeste R$ 25,00; Centro-Oeste R$ 30,00; Nordeste R$ 35,00; Norte R$ 40,00. A região é determinada pela UF. Os valores persistidos do pedido são em BRL. Cada item guarda preço unitário convertido no checkout, quantidade, desconto e subtotal; o pedido guarda subtotal, desconto, frete, total final e moeda. Não há regra de desconto definida, portanto o desconto é R$ 0,00. O catálogo atual não possui variações de produto; elas não são incluídas no snapshot.
+
 **Sucesso — `201 Created`**
 
-Retorna o pedido com os dados de snapshot, valor total em BRL, estado, `reservationId` e expiração. O estado inicial após a reserva é `PENDING_PAYMENT`; isso significa que o estoque está reservado, não que o pagamento foi aprovado.
+Retorna o pedido com endereço, itens e dados de catálogo persistidos, valores financeiros, status, `reservationId` e expiração. O estado inicial após a reserva é `PENDING_PAYMENT`; isso significa que o estoque está reservado, não que o pagamento foi aprovado.
 
 **Erros comuns**
 
 | Status | Quando ocorre |
 |---|---|
-| `400 Bad Request` | Lista vazia, mais de 100 itens, IDs ou quantidades inválidas, IDs duplicados ou chave de idempotência maior que 128 caracteres. |
+| `400 Bad Request` | Lista vazia, mais de 100 itens, IDs ou quantidades inválidas, IDs duplicados, endereço/UF/CEP inválido ou chave de idempotência maior que 128 caracteres. |
 | `403 Forbidden` | Usuário autenticado sem perfil de cliente. |
 | `409 Conflict` | Estoque insuficiente, chave repetida com conteúdo diferente ou reserva não ativa. O pedido provisório é removido nas rejeições definitivas de estoque. |
 | `422 Unprocessable Entity` | Produto não encontrado ou inativo no catálogo. |
 | `502 Bad Gateway` / `503 Service Unavailable` | Falha de integração. Se o resultado da reserva for incerto, repita a mesma requisição com a mesma `Idempotency-Key`; o pedido fica recuperável e a operação de reserva é idempotente por `orderId`. |
 
-Sem `Idempotency-Key`, repetir uma requisição após timeout pode criar outro pedido. Clientes devem gerar uma chave por intenção de compra e reutilizá-la em todas as tentativas daquela mesma operação.
+Sem `Idempotency-Key`, repetir uma requisição após timeout pode criar outro pedido. Clientes devem gerar uma chave por intenção de compra e reutilizá-la em todas as tentativas daquela mesma operação. A chave considera os itens e o endereço; reutilizá-la com qualquer conteúdo diferente resulta em conflito.
 
 ### Consultar pedidos
 
 **`GET /ws/orders`**
 
-**Autenticação:** cliente autenticado. A consulta é sempre limitada ao cliente identificado pelo JWT; não aceite nem envie `customerId` no query string.
+**Autenticação:** cliente autenticado. A consulta é sempre limitada ao cliente identificado pelo JWT, não por um `customerId` enviado pelo cliente.
 
 | Parâmetro | Tipo | Obrigatório | Descrição |
 |---|---|---:|---|
 | `page` | inteiro | Não | Página baseada em zero; padrão `0`. |
 | `size` | inteiro | Não | Itens por página; padrão `5`, máximo `100`. |
-| `sort` | string | Não | Ordenação Spring Data; padrão `orderDate,desc` e `id,desc`. |
+| `sort` | string | Não | Ordenação Spring Data; padrão por `orderDate` e `id` em ordem decrescente. |
 | `targetCurrency` | string | Não | Código de moeda ISO de três letras para os valores apresentados; padrão `BRL`. |
 
-Os dados comerciais dos itens vêm do snapshot persistido na compra, não de consultas ao catálogo atual. A listagem busca os itens em lote e, quando a moeda solicitada não é BRL, faz uma chamada de câmbio por página. Valores convertidos na consulta são apenas para apresentação; não substituem o preço histórico em BRL.
+Os dados comerciais e o endereço vêm dos snapshots persistidos. Quando `targetCurrency` não é BRL, a listagem faz uma chamada de câmbio por página; a conversão é apenas para apresentação e não altera os valores históricos.
+
+**`GET /ws/orders/{orderId}`**
+
+Retorna os detalhes históricos somente se o pedido pertencer ao cliente autenticado. Um pedido inexistente ou pertencente a outro cliente retorna `404 Not Found`.
+
+### Consultas e gerenciamento administrativos
+
+As operações administrativas exigem JWT de usuário com perfil Admin. O Gateway encaminha essas rotas ao Order API e o serviço também valida o perfil recebido do Gateway.
+
+| Método e rota | Descrição |
+|---|---|
+| `GET /ws/admin/orders` | Lista pedidos paginados. |
+| `GET /ws/admin/orders/{orderId}` | Consulta os detalhes de um pedido. |
+| `POST /ws/admin/orders/{orderId}/cancel` | Cancela pedido pendente após liberar a reserva. |
+
+A listagem aceita `status`, `customerId`, `orderId`, `createdFrom`, `createdTo`, `confirmedFrom` e `confirmedTo`, além dos parâmetros de paginação e ordenação (`page`, `size`, `sort`). O tamanho padrão é 20 e o máximo é 100. As datas devem ser timestamps ISO-8601.
+
+O detalhe administrativo inclui cliente, itens/snapshots, endereço, valores, estado e dados da reserva. `paymentDataAvailable` é `false`: não existe integração nem registro de pagamento neste repositório, e a API não inventa informações de pagamento. Um pedido `PENDING_PAYMENT` pode ser cancelado se a reserva for liberada. Um pedido confirmado não pode ser cancelado (`409 Conflict`) até existir uma política de estorno.
 
 ### Transições internas e pagamento futuro
 
-O `payment-api` ou outro serviço confiável poderá solicitar as seguintes transições diretamente ao Order API pela rede interna, autenticando com `X-Service-Token`. Essas operações não são endpoints para o cliente final e o segredo não deve ser enviado ao aplicativo cliente.
+Um serviço confiável deve chamar diretamente o Order API pela rede interna com `X-Service-Token`. O endpoint de confirmação só deve ser chamado pelo fluxo responsável depois que o pagamento tiver sido aprovado; não existe Payment API neste repositório. O segredo não deve ser enviado ao aplicativo cliente.
 
 | Método e rota interna | Efeito |
 |---|---|
@@ -1028,4 +1059,10 @@ O `payment-api` ou outro serviço confiável poderá solicitar as seguintes tran
 
 Se a reserva tiver expirado, o pedido passa a `EXPIRED` e não é confirmado. O Order API também reconcilia pedidos cujo prazo passou, consultando o estado atual da reserva no Inventory API. A expiração automática do Inventory API, por si só, não altera instantaneamente o estado local do pedido; a reconciliação ocorre periodicamente.
 
-Estados de pedido utilizados: `RESERVATION_PENDING` durante a coordenação inicial, `PENDING_PAYMENT` após reserva bem-sucedida, `CONFIRMED`, `CANCELLED`, `EXPIRED` e `LEGACY` para registros anteriores à migração. Não há integração de pagamento ativa ainda; a confirmação e o cancelamento devem ser chamados pelo fluxo que futuramente processará o resultado do pagamento.
+Estados de pedido utilizados: `RESERVATION_PENDING` durante a coordenação inicial, `PENDING_PAYMENT` após reserva bem-sucedida, `CONFIRMED`, `CANCELLED`, `EXPIRED`, `FAILED` e `LEGACY` para registros anteriores às migrações.
+
+### Consulta interna para analytics
+
+**`GET /ws/orders/internal/analytics?updatedAfter={timestamp}`**
+
+Disponível somente na rede interna e protegido por `X-Service-Token`; não deve ser exposto como rota de cliente. A resposta é paginada (`page`, `size`, `sort`; padrão de 100 registros, máximo de 100) e inclui os dados históricos persistidos do pedido, inclusive `customerId`. `updatedAfter` é obrigatório e inclusivo, retornando pedidos atualizados naquele instante ou depois dele, permitindo capturar mudanças de status além da criação. O consumidor deve avançar a paginação e deduplicar registros na fronteira do instante de atualização.

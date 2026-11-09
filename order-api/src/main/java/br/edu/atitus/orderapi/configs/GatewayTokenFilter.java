@@ -30,7 +30,9 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return !request.getRequestURI().equals("/ws/orders")
-                && !request.getRequestURI().startsWith("/ws/orders/");
+                && !request.getRequestURI().startsWith("/ws/orders/")
+                && !request.getRequestURI().equals("/ws/admin/orders")
+                && !request.getRequestURI().startsWith("/ws/admin/orders/");
     }
 
     @Override
@@ -41,7 +43,9 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         String suppliedToken = request.getHeader("X-Gateway-Token");
         String suppliedServiceToken = request.getHeader("X-Service-Token");
-        if (isInternalTransitionPath(request.getRequestURI()) && isValidServiceToken(suppliedServiceToken)) {
+        if ((isInternalTransitionPath(request.getRequestURI())
+                || isAnalyticsPath(request.getRequestURI()))
+                && isValidServiceToken(suppliedServiceToken)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -61,6 +65,10 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
 
     private boolean isInternalTransitionPath(String path) {
         return path.matches("/ws/orders/[0-9]+/(confirm|cancel)");
+    }
+
+    private boolean isAnalyticsPath(String path) {
+        return path.equals("/ws/orders/internal/analytics");
     }
 
     private boolean isValidServiceToken(String suppliedToken) {

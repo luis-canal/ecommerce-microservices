@@ -9,11 +9,12 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
@@ -28,12 +29,32 @@ public class OrderEntity {
 
     private Instant orderDate;
 
+    private Instant updatedAt;
+
     @Column(nullable = false)
     @JsonIgnore
     private Long customerId; // ID do cliente logado
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItemEntity> items;
+
+    @Embedded
+    private ShippingAddress shippingAddress;
+
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal subtotal = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal shippingAmount = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal totalAmount = BigDecimal.ZERO;
+
+    @Column(nullable = false, length = 3)
+    private String currency = "BRL";
 
     @Column(nullable = false, length = 32)
     @Enumerated(EnumType.STRING)
@@ -77,6 +98,14 @@ public class OrderEntity {
         this.orderDate = orderDate;
     }
 
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
     public Long getCustomerId() {
         return customerId;
     }
@@ -91,6 +120,62 @@ public class OrderEntity {
 
     public void setItems(List<OrderItemEntity> items) {
         this.items = items;
+    }
+
+    public ShippingAddress getShippingAddress() {
+        return shippingAddress;
+    }
+
+    public void setShippingAddress(ShippingAddress shippingAddress) {
+        this.shippingAddress = shippingAddress;
+    }
+
+    public BigDecimal getSubtotal() {
+        return subtotal;
+    }
+
+    public void setSubtotal(BigDecimal subtotal) {
+        this.subtotal = subtotal;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
+    }
+
+    public BigDecimal getShippingAmount() {
+        return shippingAmount;
+    }
+
+    public void setShippingAmount(BigDecimal shippingAmount) {
+        this.shippingAmount = shippingAmount;
+    }
+
+    public BigDecimal getTotalAmount() {
+        return totalAmount;
+    }
+
+    public void setTotalAmount(BigDecimal totalAmount) {
+        this.totalAmount = totalAmount;
+    }
+
+    public BigDecimal getTotal() {
+        return totalAmount;
+    }
+
+    public void setTotal(BigDecimal total) {
+        this.totalAmount = total;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
     }
 
     public OrderStatus getStatus() {
@@ -163,6 +248,22 @@ public class OrderEntity {
 
     public void setTotalConvertedPrice(BigDecimal totalConvertedPrice) {
         this.totalConvertedPrice = totalConvertedPrice;
+    }
+
+    @jakarta.persistence.PostLoad
+    private void initializeTransientTotals() {
+        if (subtotal != null) {
+            totalPrice = subtotal;
+        }
+        if (totalAmount != null) {
+            totalConvertedPrice = totalAmount;
+        }
+    }
+
+    @jakarta.persistence.PrePersist
+    @jakarta.persistence.PreUpdate
+    private void updateTimestamp() {
+        updatedAt = Instant.now();
     }
 
 

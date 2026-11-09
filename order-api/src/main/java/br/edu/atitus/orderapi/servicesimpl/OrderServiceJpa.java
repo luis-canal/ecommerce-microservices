@@ -9,11 +9,14 @@ import br.edu.atitus.orderapi.dtos.InventoryReservationResponse;
 import br.edu.atitus.orderapi.dtos.OrderDTO;
 import br.edu.atitus.orderapi.dtos.OrderItemDTO;
 import br.edu.atitus.orderapi.dtos.ProductResponse;
+import br.edu.atitus.orderapi.dtos.ShippingAddressDTO;
 import br.edu.atitus.orderapi.entities.OrderEntity;
 import br.edu.atitus.orderapi.entities.OrderItemEntity;
 import br.edu.atitus.orderapi.entities.OrderStatus;
+import br.edu.atitus.orderapi.entities.ShippingAddress;
 import br.edu.atitus.orderapi.repositories.OrderRepository;
 import br.edu.atitus.orderapi.services.OrderService;
+import br.edu.atitus.orderapi.services.ShippingCostCalculator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -52,6 +55,7 @@ public class OrderServiceJpa implements OrderService {
     private final CurrencyClient currencyClient;
     private final InventoryClient inventoryClient;
     private final OrderPersistenceService persistenceService;
+    private final ShippingCostCalculator shippingCostCalculator;
     private final String inventoryServiceToken;
 
     public OrderServiceJpa(
@@ -60,6 +64,7 @@ public class OrderServiceJpa implements OrderService {
             CurrencyClient currencyClient,
             InventoryClient inventoryClient,
             OrderPersistenceService persistenceService,
+            ShippingCostCalculator shippingCostCalculator,
             @Value("${order.clients.inventory-api.service-token:}") String inventoryServiceToken
     ) {
         this.orderRepository = orderRepository;
@@ -67,14 +72,17 @@ public class OrderServiceJpa implements OrderService {
         this.currencyClient = currencyClient;
         this.inventoryClient = inventoryClient;
         this.persistenceService = persistenceService;
+        this.shippingCostCalculator = shippingCostCalculator;
         this.inventoryServiceToken = inventoryServiceToken;
     }
 
     @Override
     public OrderEntity createOrder(OrderDTO request, Long userId, String idempotencyKey) {
         Map<Long, Integer> requestedItems = validateRequest(request, userId);
+        ShippingAddress shippingAddress = toShippingAddress(request.shippingAddress());
+        BigDecimal shippingAmount = shippingCostCalculator.calculate(shippingAddress.getState());
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-        String fingerprint = fingerprint(requestedItems);
+        String fingerprint = fingerprint(requestedItems, shippingAddress);
 
         if (normalizedKey != null) {
             var existing = orderRepository.findByCustomerIdAndIdempotencyKey(userId, normalizedKey);
@@ -85,6 +93,15 @@ public class OrderServiceJpa implements OrderService {
 
         OrderEntity order = buildOrder(requestedItems);
         order.setCustomerId(userId);
+        order.setShippingAddress(shippingAddress);
+        order.setShippingAmount(shippingAmount);
+        order.setTotalAmount(order.getSubtotal().subtract(order.getDiscountAmount()).add(shippingAmount));
+        if (order.getTotalAmount().precision() > 19) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Total do pedido excede o limite financeiro permitido."
+            );
+        }
         order.setIdempotencyKey(normalizedKey);
         order.setRequestFingerprint(fingerprint);
 
@@ -134,21 +151,53 @@ public class OrderServiceJpa implements OrderService {
         }
 
         for (OrderEntity order : orders.getContent()) {
-            BigDecimal totalPrice = BigDecimal.ZERO;
-            BigDecimal totalConvertedPrice = BigDecimal.ZERO;
-            for (OrderItemEntity item : order.getItems()) {
-                BigDecimal converted = item.getPriceAtPurchase()
-                        .multiply(conversionRate)
-                        .setScale(2, RoundingMode.HALF_UP);
-                item.setConvertedPriceAtPruchase(converted);
-                item.setProduct(ProductResponse.fromSnapshot(item, normalizedCurrency, converted));
-                totalPrice = totalPrice.add(item.getPriceAtPurchase().multiply(BigDecimal.valueOf(item.getQuantity())));
-                totalConvertedPrice = totalConvertedPrice.add(converted.multiply(BigDecimal.valueOf(item.getQuantity())));
-            }
-            order.setTotalPrice(totalPrice);
-            order.setTotalConvertedPrice(totalConvertedPrice);
+            prepareOrderFromSnapshot(order, normalizedCurrency, conversionRate);
         }
         return orders;
+    }
+
+    @Override
+    public OrderEntity findOrderByCustomerIdAndId(Long customerId, Long orderId) {
+        OrderEntity order = orderRepository.findWithItemsByCustomerIdAndId(customerId, orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido não encontrado."));
+        prepareOrderFromSnapshot(order, "BRL", BigDecimal.ONE);
+        return order;
+    }
+
+    @Override
+    public Page<OrderEntity> findOrdersForAdmin(
+            Long orderId,
+            OrderStatus status,
+            Long customerId,
+            Instant createdFrom,
+            Instant createdTo,
+            Instant confirmedFrom,
+            Instant confirmedTo,
+            Pageable pageable
+    ) {
+        validateRange(createdFrom, createdTo, "criação");
+        validateRange(confirmedFrom, confirmedTo, "confirmação");
+        Page<Long> ids = orderRepository.findIdsForAdmin(
+                orderId, status, customerId, createdFrom, createdTo, confirmedFrom, confirmedTo, pageable
+        );
+        return loadOrdersWithSnapshots(ids, pageable);
+    }
+
+    @Override
+    public OrderEntity findOrderForAdmin(Long orderId) {
+        OrderEntity order = orderRepository.findWithItemsById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido não encontrado."));
+        prepareOrderFromSnapshot(order, "BRL", BigDecimal.ONE);
+        return order;
+    }
+
+    @Override
+    public Page<OrderEntity> findOrdersUpdatedAfter(Instant updatedAfter, Pageable pageable) {
+        if (updatedAfter == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "updatedAfter é obrigatório.");
+        }
+        Page<Long> ids = orderRepository.findIdsUpdatedAfter(updatedAfter, pageable);
+        return loadOrdersWithSnapshots(ids, pageable);
     }
 
     @Override
@@ -172,9 +221,18 @@ public class OrderServiceJpa implements OrderService {
                         "Não foi possível confirmar a reserva; o pedido pode ser reconciliado."
                 );
             }
-            reservation = inventoryClient.get(order.getReservationId(), inventoryServiceToken);
+            reservation = getReservationAfterConflict(
+                    order.getReservationId(),
+                    "Não foi possível consultar a reserva após a tentativa de confirmação."
+            );
             if ("EXPIRED".equals(reservation.status())) {
                 return persistenceService.updateStatus(orderId, OrderStatus.EXPIRED);
+            }
+            if ("CONFIRMED".equals(reservation.status())) {
+                return persistenceService.updateStatus(orderId, OrderStatus.CONFIRMED);
+            }
+            if ("RELEASED".equals(reservation.status())) {
+                persistenceService.updateStatus(orderId, OrderStatus.CANCELLED);
             }
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reserva de estoque não pode ser confirmada.");
         } catch (ResourceAccessException exception) {
@@ -187,6 +245,9 @@ public class OrderServiceJpa implements OrderService {
             return persistenceService.updateStatus(orderId, OrderStatus.EXPIRED);
         }
         if (!"CONFIRMED".equals(reservation.status())) {
+            if ("RELEASED".equals(reservation.status())) {
+                persistenceService.updateStatus(orderId, OrderStatus.CANCELLED);
+            }
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reserva de estoque não pode ser confirmada.");
         }
         return persistenceService.updateStatus(orderId, OrderStatus.CONFIRMED);
@@ -216,9 +277,18 @@ public class OrderServiceJpa implements OrderService {
                         "Não foi possível liberar a reserva; o pedido pode ser reconciliado."
                 );
             }
-            reservation = inventoryClient.get(order.getReservationId(), inventoryServiceToken);
+            reservation = getReservationAfterConflict(
+                    order.getReservationId(),
+                    "Não foi possível consultar a reserva após a tentativa de liberação."
+            );
             if ("EXPIRED".equals(reservation.status())) {
                 return persistenceService.updateStatus(orderId, OrderStatus.EXPIRED);
+            }
+            if ("RELEASED".equals(reservation.status())) {
+                return persistenceService.updateStatus(orderId, OrderStatus.CANCELLED);
+            }
+            if ("CONFIRMED".equals(reservation.status())) {
+                persistenceService.updateStatus(orderId, OrderStatus.CONFIRMED);
             }
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reserva de estoque não pode ser liberada.");
         } catch (ResourceAccessException exception) {
@@ -231,6 +301,9 @@ public class OrderServiceJpa implements OrderService {
             return persistenceService.updateStatus(orderId, OrderStatus.EXPIRED);
         }
         if (!"RELEASED".equals(reservation.status())) {
+            if ("CONFIRMED".equals(reservation.status())) {
+                persistenceService.updateStatus(orderId, OrderStatus.CONFIRMED);
+            }
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reserva de estoque não pode ser liberada.");
         }
         return persistenceService.updateStatus(orderId, OrderStatus.CANCELLED);
@@ -333,17 +406,31 @@ public class OrderServiceJpa implements OrderService {
         return normalized;
     }
 
-    private String fingerprint(Map<Long, Integer> requestedItems) {
-        String canonical = requestedItems.entrySet().stream()
-                .map(entry -> entry.getKey() + ":" + entry.getValue())
-                .reduce((left, right) -> left + "|" + right)
-                .orElse("");
+    private String fingerprint(Map<Long, Integer> requestedItems, ShippingAddress address) {
+        StringBuilder canonical = new StringBuilder();
+        requestedItems.forEach((productId, quantity) -> {
+            appendFingerprintPart(canonical, productId.toString());
+            appendFingerprintPart(canonical, quantity.toString());
+        });
+        appendFingerprintPart(canonical, address.getZipCode());
+        appendFingerprintPart(canonical, address.getStreet());
+        appendFingerprintPart(canonical, address.getNumber());
+        appendFingerprintPart(canonical, address.getComplement());
+        appendFingerprintPart(canonical, address.getNeighborhood());
+        appendFingerprintPart(canonical, address.getCity());
+        appendFingerprintPart(canonical, address.getState());
         try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 indisponível.", exception);
         }
+    }
+
+    private void appendFingerprintPart(StringBuilder canonical, String value) {
+        String normalized = value == null ? "" : value;
+        canonical.append(normalized.length()).append(':').append(normalized);
     }
 
     private OrderEntity buildOrder(Map<Long, Integer> requestedItems) {
@@ -364,12 +451,27 @@ public class OrderServiceJpa implements OrderService {
             } catch (ResourceAccessException exception) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Catálogo indisponível.");
             }
-            if (product == null || product.convertedPrice() == null || product.convertedPrice().signum() <= 0) {
+            if (product == null || product.id() == null || !product.id().equals(requested.getKey())
+                    || product.active() == null || product.productType() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "O catálogo retornou dados incompletos.");
+            }
+            if (product.convertedPrice() == null || product.convertedPrice().signum() <= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "O catálogo retornou preço inválido.");
+            }
+            if (product.price() == null || product.price().signum() <= 0
+                    || product.price().precision() > 19
+                    || product.currency() == null || !product.currency().matches("[A-Za-z]{3}")) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "O catálogo retornou preço/moeda inválidos.");
             }
             BigDecimal purchasePrice = product.convertedPrice().setScale(2, RoundingMode.HALF_UP);
             if (purchasePrice.signum() <= 0 || purchasePrice.precision() > 19) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "O catálogo retornou preço fora do limite permitido.");
+            }
+            if (!product.active()) {
+                throw new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Produto indisponível no catálogo: " + requested.getKey()
+                );
             }
 
             OrderItemEntity item = new OrderItemEntity();
@@ -377,29 +479,155 @@ public class OrderServiceJpa implements OrderService {
             item.setQuantity(requested.getValue());
             item.setPriceAtPurchase(purchasePrice);
             item.setCurrencyAtPurchase("BRL");
+            item.setCatalogPriceAtPurchase(product.price().setScale(2, RoundingMode.HALF_UP));
+            item.setCatalogCurrencyAtPurchase(product.currency().toUpperCase(Locale.ROOT));
+            item.setDiscountAmount(BigDecimal.ZERO.setScale(2));
+            item.setSubtotal(purchasePrice.multiply(BigDecimal.valueOf(requested.getValue()))
+                    .setScale(2, RoundingMode.HALF_UP));
             item.setConvertedPriceAtPruchase(item.getPriceAtPurchase());
             item.setProductName(nonBlank(product.name(), product.model(), "Produto " + product.id()));
             item.setProductBrand(product.brand());
             item.setProductModel(product.model());
             item.setProductDescription(product.description());
             item.setProductImage(product.image());
+            item.setCategoryId(product.categoryId());
+            item.setCategoryName(product.categoryName());
+            item.setSubcategoryId(product.subcategoryId());
+            item.setSubcategoryName(product.subcategoryName());
+            item.setProductType(product.productType() == null ? null : product.productType().toString());
+            item.setProductActive(product.active());
+            item.setProductEnvironment(product.environment());
+            item.setPromotionMessage(product.promotionMessage());
+            if (item.getSubtotal().precision() > 19) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Subtotal do item excede o limite financeiro permitido."
+                );
+            }
             item.setProduct(product);
             item.setOrder(order);
             items.add(item);
         }
         order.setItems(items);
         BigDecimal total = items.stream()
-                .map(item -> item.getPriceAtPurchase().multiply(BigDecimal.valueOf(item.getQuantity())))
+                .map(OrderItemEntity::getSubtotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (total.precision() > 19) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Subtotal do pedido excede o limite financeiro permitido."
+            );
+        }
+        order.setSubtotal(total);
+        order.setDiscountAmount(BigDecimal.ZERO.setScale(2));
+        order.setShippingAmount(BigDecimal.ZERO.setScale(2));
+        order.setTotalAmount(total);
+        order.setCurrency("BRL");
         order.setTotalPrice(total);
         order.setTotalConvertedPrice(total);
         return order;
+    }
+
+    private ShippingAddress toShippingAddress(ShippingAddressDTO request) {
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Endereço de entrega é obrigatório.");
+        }
+        String zipCode = requiredAddressValue(request.zipCode(), "CEP", 9);
+        if (!zipCode.matches("\\d{5}-?\\d{3}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CEP inválido.");
+        }
+        String street = requiredAddressValue(request.street(), "Rua", 200);
+        String number = requiredAddressValue(request.number(), "Número", 32);
+        String neighborhood = requiredAddressValue(request.neighborhood(), "Bairro", 120);
+        String city = requiredAddressValue(request.city(), "Cidade", 120);
+        String state = requiredAddressValue(request.state(), "UF", 2).toUpperCase(Locale.ROOT);
+        if (!state.matches("[A-Z]{2}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UF inválida.");
+        }
+        String complement = optionalAddressValue(request.complement(), 200);
+
+        ShippingAddress address = new ShippingAddress();
+        address.setZipCode(zipCode);
+        address.setStreet(street);
+        address.setNumber(number);
+        address.setComplement(complement);
+        address.setNeighborhood(neighborhood);
+        address.setCity(city);
+        address.setState(state);
+        return address;
+    }
+
+    private String requiredAddressValue(String value, String field, int maxLength) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.isEmpty() || normalized.length() > maxLength) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    field + " do endereço de entrega é obrigatório e deve respeitar o limite de tamanho."
+            );
+        }
+        return normalized;
+    }
+
+    private String optionalAddressValue(String value, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > maxLength) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Complemento do endereço excede o limite.");
+        }
+        return normalized;
     }
 
     private String nonBlank(String value, String fallback, String finalFallback) {
         return value == null || value.isBlank()
                 ? (fallback == null || fallback.isBlank() ? finalFallback : fallback)
                 : value;
+    }
+
+    private void prepareOrderFromSnapshot(OrderEntity order, String targetCurrency, BigDecimal conversionRate) {
+        for (OrderItemEntity item : order.getItems()) {
+            BigDecimal converted = item.getPriceAtPurchase()
+                    .multiply(conversionRate)
+                    .setScale(2, RoundingMode.HALF_UP);
+            item.setConvertedPriceAtPruchase(converted);
+            item.setProduct(ProductResponse.fromSnapshot(item, targetCurrency, converted));
+        }
+        order.setTotalPrice(order.getSubtotal());
+        order.setTotalConvertedPrice(order.getTotalAmount()
+                .multiply(conversionRate)
+                .setScale(2, RoundingMode.HALF_UP));
+    }
+
+    private Page<OrderEntity> loadOrdersWithSnapshots(Page<Long> ids, Pageable pageable) {
+        if (ids.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, ids.getTotalElements());
+        }
+        Map<Long, OrderEntity> ordersById = orderRepository.findAllWithItemsByIdIn(ids.getContent()).stream()
+                .collect(Collectors.toMap(OrderEntity::getId, Function.identity()));
+        List<OrderEntity> orderedResults = ids.getContent().stream()
+                .map(ordersById::get)
+                .filter(java.util.Objects::nonNull)
+                .peek(order -> prepareOrderFromSnapshot(order, "BRL", BigDecimal.ONE))
+                .toList();
+        return new PageImpl<>(orderedResults, pageable, ids.getTotalElements());
+    }
+
+    private void validateRange(Instant start, Instant end, String label) {
+        if (start != null && end != null && start.isAfter(end)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Período de " + label + " inválido: o início deve anteceder o fim."
+            );
+        }
+    }
+
+    private InventoryReservationResponse getReservationAfterConflict(Long reservationId, String message) {
+        try {
+            return inventoryClient.get(reservationId, inventoryServiceToken);
+        } catch (RestClientResponseException | ResourceAccessException exception) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, message, exception);
+        }
     }
 
     private OrderEntity resumeOrReturn(OrderEntity existing, String fingerprint) {

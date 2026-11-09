@@ -146,7 +146,8 @@ public class AuthFilter implements GlobalFilter, Ordered {
     }
 
     private boolean isOrderPath(String path) {
-        return path.equals("/ws/orders") || path.startsWith("/ws/orders/");
+        return path.equals("/ws/orders") || path.startsWith("/ws/orders/")
+                || path.equals("/ws/admin/orders") || path.startsWith("/ws/admin/orders/");
     }
 
     private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status) {

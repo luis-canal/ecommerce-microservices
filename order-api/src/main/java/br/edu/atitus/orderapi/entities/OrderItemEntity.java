@@ -33,23 +33,56 @@ public class OrderItemEntity {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal priceAtPurchase;
 
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal subtotal = BigDecimal.ZERO;
+
     @Column(nullable = false)
     private String currencyAtPurchase; // guarda a moeda no momento da compra
 
-    @Column(length = 200)
+    @Column(precision = 19, scale = 2)
+    private BigDecimal catalogPriceAtPurchase;
+
+    @Column(length = 3)
+    private String catalogCurrencyAtPurchase;
+
+    @Column(columnDefinition = "TEXT")
     private String productName;
 
-    @Column(length = 200)
+    @Column(columnDefinition = "TEXT")
     private String productBrand;
 
-    @Column(length = 200)
+    @Column(columnDefinition = "TEXT")
     private String productModel;
 
-    @Column(length = 2000)
+    @Column(columnDefinition = "TEXT")
     private String productDescription;
 
-    @Column(length = 1000)
+    @Column(columnDefinition = "TEXT")
     private String productImage;
+
+    private Long categoryId;
+
+    @Column(columnDefinition = "TEXT")
+    private String categoryName;
+
+    private Long subcategoryId;
+
+    @Column(columnDefinition = "TEXT")
+    private String subcategoryName;
+
+    @Column(length = 32)
+    private String productType;
+
+    private Boolean productActive;
+
+    @Column(columnDefinition = "TEXT")
+    private String productEnvironment;
+
+    @Column(columnDefinition = "TEXT")
+    private String promotionMessage;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id", nullable = false)
@@ -57,7 +90,7 @@ public class OrderItemEntity {
     private OrderEntity order;
 
     @Transient
-    private ProductResponse product; // preenchido via chamada REST
+    private ProductResponse product;
 
     @Transient
     private BigDecimal convertedPriceAtPruchase = BigDecimal.ZERO;
@@ -94,12 +127,52 @@ public class OrderItemEntity {
         this.priceAtPurchase = priceAtPurchase;
     }
 
+    public BigDecimal getUnitPrice() {
+        return priceAtPurchase;
+    }
+
+    public void setUnitPrice(BigDecimal unitPrice) {
+        this.priceAtPurchase = unitPrice;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
+    }
+
+    public BigDecimal getSubtotal() {
+        return subtotal;
+    }
+
+    public void setSubtotal(BigDecimal subtotal) {
+        this.subtotal = subtotal;
+    }
+
     public String getCurrencyAtPurchase() {
         return currencyAtPurchase;
     }
 
     public void setCurrencyAtPurchase(String currencyAtPurchase) {
         this.currencyAtPurchase = currencyAtPurchase;
+    }
+
+    public BigDecimal getCatalogPriceAtPurchase() {
+        return catalogPriceAtPurchase;
+    }
+
+    public void setCatalogPriceAtPurchase(BigDecimal catalogPriceAtPurchase) {
+        this.catalogPriceAtPurchase = catalogPriceAtPurchase;
+    }
+
+    public String getCatalogCurrencyAtPurchase() {
+        return catalogCurrencyAtPurchase;
+    }
+
+    public void setCatalogCurrencyAtPurchase(String catalogCurrencyAtPurchase) {
+        this.catalogCurrencyAtPurchase = catalogCurrencyAtPurchase;
     }
 
     public String getProductName() {
@@ -140,6 +213,70 @@ public class OrderItemEntity {
 
     public void setProductImage(String productImage) {
         this.productImage = productImage;
+    }
+
+    public Long getCategoryId() {
+        return categoryId;
+    }
+
+    public void setCategoryId(Long categoryId) {
+        this.categoryId = categoryId;
+    }
+
+    public String getCategoryName() {
+        return categoryName;
+    }
+
+    public void setCategoryName(String categoryName) {
+        this.categoryName = categoryName;
+    }
+
+    public Long getSubcategoryId() {
+        return subcategoryId;
+    }
+
+    public void setSubcategoryId(Long subcategoryId) {
+        this.subcategoryId = subcategoryId;
+    }
+
+    public String getSubcategoryName() {
+        return subcategoryName;
+    }
+
+    public void setSubcategoryName(String subcategoryName) {
+        this.subcategoryName = subcategoryName;
+    }
+
+    public String getProductType() {
+        return productType;
+    }
+
+    public void setProductType(String productType) {
+        this.productType = productType;
+    }
+
+    public Boolean getProductActive() {
+        return productActive;
+    }
+
+    public void setProductActive(Boolean productActive) {
+        this.productActive = productActive;
+    }
+
+    public String getProductEnvironment() {
+        return productEnvironment;
+    }
+
+    public void setProductEnvironment(String productEnvironment) {
+        this.productEnvironment = productEnvironment;
+    }
+
+    public String getPromotionMessage() {
+        return promotionMessage;
+    }
+
+    public void setPromotionMessage(String promotionMessage) {
+        this.promotionMessage = promotionMessage;
     }
 
     public OrderEntity getOrder() {
