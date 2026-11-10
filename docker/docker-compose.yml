@@ -142,6 +142,27 @@ services:
     restart: unless-stopped
 
   # ==========================================================
+  # BANCO DE DADOS - CART API
+  # ==========================================================
+  cart-db:
+    image: postgres:17
+    container_name: cart-db
+    environment:
+      POSTGRES_DB: db_cart
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - cart_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d db_cart"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
   # PRODUCT API
   # ==========================================================
   product-api:
@@ -250,6 +271,30 @@ services:
     restart: unless-stopped
 
   # ==========================================================
+  # CART API
+  # ==========================================================
+  cart-api:
+    build:
+      context: ../cart-api
+    container_name: cart-api
+    environment:
+      SPRING_CONFIG_IMPORT: "consul:"
+      SPRING_CLOUD_CONSUL_HOST: consul
+      SPRING_CLOUD_CONSUL_PORT: 8500
+    depends_on:
+      consul-config:
+        condition: service_completed_successfully
+      cart-db:
+        condition: service_healthy
+      product-api:
+        condition: service_started
+      inventory-api:
+        condition: service_started
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
   # GATEWAY API
   # ==========================================================
   gateway-api:
@@ -286,4 +331,5 @@ volumes:
   auth_data:
   inventory_data:
   order_data:
+  cart_data:
   auth_internal_secret:

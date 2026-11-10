@@ -191,6 +191,23 @@ if [ "${#GATEWAY_ORDER_TOKEN}" -lt 32 ]; then
     exit 1
 fi
 
+GATEWAY_CART_SECRET_FILE="/run/secrets/gateway_cart_downstream_token"
+if [ ! -s "$GATEWAY_CART_SECRET_FILE" ]; then
+    umask 077
+    generated_secret="$(consul keygen)"
+    if [ "${#generated_secret}" -lt 32 ]; then
+        echo "Não foi possível gerar uma credencial Gateway-Cart válida" >&2
+        exit 1
+    fi
+    printf '%s' "$generated_secret" > "$GATEWAY_CART_SECRET_FILE"
+fi
+
+GATEWAY_CART_TOKEN="$(cat "$GATEWAY_CART_SECRET_FILE")"
+if [ "${#GATEWAY_CART_TOKEN}" -lt 32 ]; then
+    echo "A credencial Gateway-Cart persistida é inválida" >&2
+    exit 1
+fi
+
 put "config/auth-api/server.port" "8200"
 put "config/auth-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
 
@@ -212,6 +229,8 @@ put "config/inventory-api/inventory.security.gateway-token" "$GATEWAY_DOWNSTREAM
 put "config/gateway-api/gateway.security.inventory-downstream-token" "$GATEWAY_DOWNSTREAM_TOKEN"
 put "config/order-api/order.security.gateway-token" "$GATEWAY_ORDER_TOKEN"
 put "config/gateway-api/gateway.security.order-downstream-token" "$GATEWAY_ORDER_TOKEN"
+put "config/cart-api/cart.security.gateway-token" "$GATEWAY_CART_TOKEN"
+put "config/gateway-api/gateway.security.cart-downstream-token" "$GATEWAY_CART_TOKEN"
 
 
 # ==========================================================
@@ -248,6 +267,19 @@ put "config/order-api/order.clients.product-api.base-url" "http://product-api"
 put "config/order-api/order.clients.currency-api.base-url" "http://currency-api"
 put "config/order-api/order.clients.inventory-api.base-url" "http://inventory-api"
 put "config/order-api/order.reservations.expiration-scan-ms" "30000"
+
+# ==========================================================
+# CART API
+# ==========================================================
+
+put "config/cart-api/server.port" "8600"
+put "config/cart-api/spring.datasource.url" \
+    "jdbc:postgresql://cart-db:5432/db_cart"
+put "config/cart-api/spring.datasource.username" "postgres"
+put "config/cart-api/spring.datasource.password" "postgres"
+put "config/cart-api/cart.security.service-token" "$SERVICE_AUTH_TOKEN"
+put "config/cart-api/cart.clients.product-api.base-url" "http://product-api"
+put "config/cart-api/cart.clients.inventory-api.base-url" "http://inventory-api"
 
 # ==========================================================
 # FINALIZAÇÃO

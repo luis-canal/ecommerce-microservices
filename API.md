@@ -1066,3 +1066,92 @@ Estados de pedido utilizados: `RESERVATION_PENDING` durante a coordenação inic
 **`GET /ws/orders/internal/analytics?updatedAfter={timestamp}`**
 
 Disponível somente na rede interna e protegido por `X-Service-Token`; não deve ser exposto como rota de cliente. A resposta é paginada (`page`, `size`, `sort`; padrão de 100 registros, máximo de 100) e inclui os dados históricos persistidos do pedido, inclusive `customerId`. `updatedAfter` é obrigatório e inclusivo, retornando pedidos atualizados naquele instante ou depois dele, permitindo capturar mudanças de status além da criação. O consumidor deve avançar a paginação e deduplicar registros na fronteira do instante de atualização.
+
+## Carrinho
+
+O `cart-api` mantém um carrinho persistente por cliente autenticado. As rotas abaixo são encaminhadas pelo Gateway e exigem JWT de cliente. O identificador do cliente vem do token validado pelo Gateway, não do corpo da requisição.
+
+O carrinho consulta os dados comerciais em `product-api` e a disponibilidade em `inventory-api`. Valores e subtotais são estimativas em BRL consultadas no momento da leitura; preço, estoque e disponibilidade podem mudar antes do checkout. O carrinho não reserva estoque, não calcula frete e não cria pedidos.
+
+Para incluir produtos desativados nas leituras do carrinho, o `cart-api` consulta o endpoint interno `GET /internal/products/{productId}/cart-data` do `product-api`, protegido por `X-Service-Token`; ele retorna os dados comerciais atuais em BRL e o status efetivo de ativação do produto, categoria e subcategoria. Esse endpoint não deve ser chamado pelo frontend.
+
+### Consultar carrinho
+
+**`GET /ws/cart`**
+
+Retorna o carrinho persistido do cliente; quando ainda não existe, cria um carrinho vazio. A resposta inclui o produto, a quantidade desejada, estoque físico/reservado/disponível, preço unitário e subtotal estimado.
+
+```json
+{
+  "id": 13,
+  "version": 2,
+  "createdAt": "2026-11-10T12:00:00Z",
+  "updatedAt": "2026-11-10T12:10:00Z",
+  "currency": "BRL",
+  "estimatedSubtotal": 150.00,
+  "estimateComplete": true,
+  "items": [
+    {
+      "productId": 17,
+      "name": "Cuia artesanal",
+      "brand": "Marca Gaúcha",
+      "model": "CU-01",
+      "image": "https://example.com/cuia.jpg",
+      "productType": "MULTI_UNIT",
+      "active": true,
+      "productAvailable": true,
+      "desiredQuantity": 2,
+      "quantityOnHand": 10,
+      "quantityReserved": 1,
+      "availableQuantity": 9,
+      "unitPrice": 75.00,
+      "estimatedSubtotal": 150.00,
+      "available": true,
+      "addedAt": "2026-11-10T12:00:00Z",
+      "updatedAt": "2026-11-10T12:00:00Z"
+    }
+  ]
+}
+```
+
+Se o produto for desativado, seus dados comerciais atuais continuam disponíveis para exibição, mas a resposta marca `active: false` e `available: false`; o item não é removido. Se o produto tiver sido removido do catálogo, o item continua no carrinho com `productAvailable: false`; seus dados e subtotais ficam nulos, e `estimateComplete` será `false` com `estimatedSubtotal` nulo. Se não houver registro de estoque, as quantidades são apresentadas como zero. Disponibilidade insuficiente não remove o item; a resposta marca `available: false`.
+
+### Adicionar produto ou atualizar sua quantidade
+
+**`POST /ws/cart/items`**
+
+```json
+{
+  "productId": 17,
+  "quantity": 2
+}
+```
+
+Se o produto já estiver no carrinho, a quantidade é substituída pela informada, sem criar um segundo item e sem somar à quantidade anterior. Produtos `SINGLE_UNIT` aceitam somente quantidade `1`; produtos `MULTI_UNIT` aceitam quantidade inteira positiva. O serviço rejeita produto inativo/inexistente ou quantidade acima da disponibilidade observada. O sucesso retorna `200 OK` com o carrinho atualizado.
+
+### Alterar quantidade de um produto
+
+**`PATCH /ws/cart/items/{productId}`**
+
+Atualiza a quantidade de um item já existente, após consultar novamente catálogo e disponibilidade.
+
+```json
+{
+  "quantity": 3
+}
+```
+
+O sucesso retorna `200 OK` com o carrinho atualizado. Item inexistente retorna `404 Not Found`.
+
+### Remover itens
+
+- **`DELETE /ws/cart/items/{productId}`** remove um produto; retorna `204 No Content` ou `404 Not Found` se ele não estiver no carrinho.
+- **`DELETE /ws/cart/items`** remove todos os produtos e mantém o registro persistente do carrinho; retorna `204 No Content`.
+
+Quantidade inválida ou tentativa de exceder o estoque retorna `400 Bad Request` ou `409 Conflict`, respectivamente. Falhas ao consultar os serviços dependentes retornam erro `502`/`503`, sem usar preços ou disponibilidade em cache como fallback.
+
+### Checkout do carrinho
+
+O frontend envia os itens escolhidos e o endereço diretamente para **`POST /ws/orders`**; o contrato existente de pedido recebe `items` e `shippingAddress`. O `order-api` consulta novamente o catálogo, define os valores finais, calcula o frete e coordena a reserva atômica de todos os itens no `inventory-api`. O carrinho não participa da criação do pedido.
+
+Somente depois de receber `201 Created` do `order-api`, o frontend deve chamar `DELETE /ws/cart/items` para limpar o carrinho. Se a criação do pedido falhar, o frontend mantém o carrinho.

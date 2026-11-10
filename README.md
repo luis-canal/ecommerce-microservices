@@ -2,15 +2,15 @@
 
 Projeto acadêmico de um **e-commerce de artigos gaúchos**, desenvolvido com arquitetura de microsserviços utilizando Java e Spring Boot.
 
-A aplicação é composta por cinco serviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
+A aplicação é composta por sete microsserviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas, carrinho, pedidos e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
 
 O objetivo é construir uma base de e-commerce distribuída, explorando conceitos de desenvolvimento backend, APIs REST, autenticação, persistência de dados e comunicação entre microsserviços.
 
-Consulte [API.md](./API.md) para a documentação detalhada dos fluxos de autenticação, catálogo de produtos e estoque.
+Consulte [API.md](./API.md) para a documentação detalhada dos fluxos de autenticação, catálogo, estoque, carrinho e pedidos.
 
 ## Arquitetura
 
-O projeto é organizado em cinco microsserviços:
+O projeto é organizado em sete microsserviços:
 
 | Serviço | Responsabilidade |
 |---|---|
@@ -19,6 +19,8 @@ O projeto é organizado em cinco microsserviços:
 | `product-api` | Consulta e gerenciamento do ciclo de vida de produtos. |
 | `inventory-api` | Estoque físico, disponibilidade, movimentações e reservas temporárias. |
 | `currency-api` | Consulta de taxas cambiais e conversão de moedas. |
+| `cart-api` | Carrinho persistente por cliente, quantidades desejadas e estimativa de subtotal. |
+| `order-api` | Checkout, valores definitivos, frete, pedidos e coordenação da reserva atômica de estoque. |
 
 ### Fluxo de comunicação
 
@@ -27,23 +29,16 @@ Todas as requisições externas às APIs devem passar pelo Gateway na porta `808
 O catálogo também se comunica com o serviço de moedas quando precisa apresentar um produto em uma moeda diferente da original.
 
 ```text
-                    CLIENTE
-                       |
-                       v
-                 GATEWAY API
-                       |
-          +-----------+-----------+-----------+
-          |           |           |           |
-          v           v           v           v
-       AUTH API   PRODUCT API  INVENTORY API CURRENCY API
-                       |           |           |
-                       +-----------+           v
-                                   |       BANCO CENTRAL
-                                   |         (PTAX)
-                             INVENTORY DB
+CLIENTE -> GATEWAY API -> CART API -> PRODUCT API -> CURRENCY API -> BANCO CENTRAL (PTAX)
+                         |             ^                ^
+                         v             |                |
+                    INVENTORY API <--- ORDER API --------+
+                         ^               |
+                         +---------------+
 ```
 
 Cada microsserviço possui sua própria responsabilidade e configuração de persistência.
+O `cart-api` consulta o catálogo e a disponibilidade para mostrar uma estimativa, mas não reserva estoque nem calcula frete. O frontend envia os itens e o endereço diretamente ao `order-api`; depois da criação bem-sucedida do pedido, o frontend limpa o carrinho.
 
 ## Tecnologias utilizadas
 
@@ -147,7 +142,25 @@ Responsável pela quantidade física, disponibilidade comercial do estoque, hist
 
 O serviço e seu PostgreSQL utilizam, respectivamente, as portas 8400 e 5432 na rede Docker. Os endpoints estão detalhados em [API.md](./API.md).
 
-### 4. Conversão de moedas — `currency-api`
+### 4. Carrinho — `cart-api`
+
+Mantém um carrinho persistente por cliente autenticado. Armazena referências de produto e quantidades desejadas, e consulta `product-api` e `inventory-api` para exibir dados atuais, disponibilidade e subtotal estimado em BRL.
+
+- Produto repetido no POST atualiza a quantidade existente sem duplicar o item.
+- `SINGLE_UNIT` aceita somente uma unidade; a quantidade de `MULTI_UNIT` pode ser alterada.
+- Adição e alteração validam a disponibilidade observada; a validação definitiva continua no checkout.
+- O carrinho não reserva estoque, não calcula frete e não cria pedidos.
+
+Endpoints: `GET /ws/cart`, `POST /ws/cart/items`, `PATCH /ws/cart/items/{productId}`, `DELETE /ws/cart/items/{productId}` e `DELETE /ws/cart/items`.
+O serviço e seu banco dedicado utilizam, respectivamente, as portas 8600 e 5432 na rede Docker.
+
+### 5. Pedidos e checkout — `order-api`
+
+Recebe diretamente do frontend os itens e o endereço de entrega, revalida o catálogo, calcula os valores definitivos e o frete, solicita uma reserva atômica de estoque e cria o pedido em `PENDING_PAYMENT` após a reserva bem-sucedida. O checkout não depende do carrinho nem o limpa automaticamente.
+
+Após receber `201 Created` de `POST /ws/orders`, o frontend pode limpar os itens chamando `DELETE /ws/cart/items`. O banco dedicado do serviço é `db_order`.
+
+### 6. Conversão de moedas — `currency-api`
 
 Responsável por fornecer as taxas de conversão utilizadas pelo catálogo.
 
@@ -174,7 +187,7 @@ GET /currencies?source=USD&target=BRL
 
 A resposta contém as moedas de origem e destino, a taxa de conversão e informações do ambiente de execução.
 
-### 5. API Gateway — `gateway-api`
+### 7. API Gateway — `gateway-api`
 
 Responsável por centralizar o acesso externo aos microsserviços.
 
@@ -189,7 +202,7 @@ Responsável por centralizar o acesso externo aos microsserviços.
 
 As rotas protegidas utilizam o prefixo `/ws/**`.
 
-O gateway possui rotas configuradas para autenticação, produtos, moedas, estoque, pedidos e operações protegidas. Nas chamadas ao `inventory-api`, ele encaminha a credencial interna de downstream; chamadas entre serviços também usam credencial serviço-a-serviço.
+O gateway possui rotas configuradas para autenticação, produtos, moedas, estoque, carrinho, pedidos e operações protegidas. Nas chamadas ao `inventory-api`, ele encaminha a credencial interna de downstream; chamadas entre serviços também usam credencial serviço-a-serviço.
 
 ## Segurança
 
@@ -205,7 +218,7 @@ O gateway valida o token e encaminha os dados de identidade do usuário aos serv
 
 O cadastro de produtos é restrito a usuários administradores. Usuários autenticados sem essa permissão recebem uma resposta de acesso negado.
 
-O `inventory-api` valida uma credencial privada do Gateway em todas as rotas e exige autenticação serviço-a-serviço nas operações internas. Em produção, configure Consul com ACL/TLS e um gerenciador de segredos; os demais microsserviços ainda devem ser protegidos contra acesso direto conforme forem integrados.
+O `inventory-api` e o `cart-api` validam credenciais privadas do Gateway. As consultas internas do `cart-api` ao catálogo e ao estoque usam credencial serviço-a-serviço. Em produção, configure Consul com ACL/TLS e um gerenciador de segredos.
 
 ## Banco de dados e persistência
 
@@ -225,6 +238,8 @@ Os bancos utilizados incluem:
 - `db_product`
 - `db_user`
 - `db_inventory`
+- `db_order`
+- `db_cart`
 
 As configurações de conexão devem corresponder às propriedades de cada serviço.
 
@@ -258,7 +273,7 @@ O Compose sobe Consul, carrega as configurações por [`load-config.sh`](./docke
 docker compose -f docker/docker-compose.yml up --build
 ```
 
-O script gera três segredos se ainda não existirem, grava-os no volume `auth_internal_secret` e publica os valores no KV do Consul. A mesma credencial de serviço é compartilhada pelo `gateway-api`, `product-api` e `inventory-api`; a credencial de encaminhamento do Gateway é compartilhada pelo `gateway-api` e `inventory-api`. Os valores são preservados enquanto o volume existir. Não execute `docker compose down -v` se quiser conservar as credenciais e os dados dos bancos.
+O script gera cinco segredos se ainda não existirem, grava-os no volume `auth_internal_secret` e publica os valores no KV do Consul. A credencial serviço-a-serviço é compartilhada pelos serviços que realizam chamadas internas; as credenciais de encaminhamento do Gateway são distintas para Inventory, Order e Cart. Os valores são preservados enquanto o volume existir. Não execute `docker compose down -v` se quiser conservar as credenciais e os dados dos bancos.
 
 O Consul configurado com `-dev` é para desenvolvimento local; ele não persiste suas chaves após a remoção/recriação do container. O script repopula o KV ao iniciar o Compose, usando as credenciais persistidas. Em produção, use Consul com ACL/TLS e um gerenciador de segredos apropriado em vez do modo de desenvolvimento.
 
@@ -325,6 +340,20 @@ cd inventory-api
 ./mvnw spring-boot:run
 ```
 
+**Cart API**
+
+```bash
+cd cart-api
+mvn spring-boot:run
+```
+
+**Order API**
+
+```bash
+cd order-api
+./mvnw spring-boot:run
+```
+
 **Gateway API**
 
 ```bash
@@ -387,7 +416,7 @@ GET /currencies?source=USD&target=BRL
 
 Para as rotas protegidas, utilize o JWT recebido no login.
 
-Os endpoints de disponibilidade e reservas também são protegidos por credencial de serviço. Chamadas entre serviços devem passar pelo Gateway usando a credencial interna provisionada no Consul; não exponha ou envie esses segredos a clientes externos.
+Os endpoints de disponibilidade e reservas são protegidos por credencial de serviço. Chamadas externas passam pelo Gateway; os microsserviços se comunicam diretamente pela rede interna usando as credenciais provisionadas no Consul. Não exponha nem envie esses segredos a clientes externos.
 
 Os exemplos de endpoints devem ser enviados ao endereço e à porta configurados para o Gateway ou para o serviço correspondente, conforme o teste desejado.
 
@@ -406,6 +435,10 @@ ecommerce-microservices/
 │   └── Serviço de conversão de moedas
 ├── inventory-api/
 │   └── Serviço de controle de estoque e reservas
+├── cart-api/
+│   └── Serviço de carrinho persistente
+├── order-api/
+│   └── Serviço de pedidos e checkout
 │
 ├── gateway-api/
 │   └── Gateway e roteamento das requisições

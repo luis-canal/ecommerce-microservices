@@ -16,6 +16,25 @@ consul kv put config/auth-api/spring.datasource.url "jdbc:postgresql://localhost
 consul kv put config/auth-api/spring.datasource.username "postgres"
 consul kv put config/auth-api/spring.datasource.password "canal222"
 
+REM Configuracao do Cart API
+consul kv put config/cart-api/server.port "8600"
+consul kv put config/cart-api/spring.datasource.url "jdbc:postgresql://localhost/db_cart"
+consul kv put config/cart-api/spring.datasource.username "postgres"
+consul kv put config/cart-api/spring.datasource.password "canal222"
+consul kv put config/cart-api/cart.clients.product-api.base-url "http://product-api"
+consul kv put config/cart-api/cart.clients.inventory-api.base-url "http://inventory-api"
+if defined SERVICE_AUTH_TOKEN (
+    consul kv put config/product-api/inventory.security.service-token "%SERVICE_AUTH_TOKEN%"
+    consul kv put config/inventory-api/inventory.security.service-token "%SERVICE_AUTH_TOKEN%"
+    consul kv put config/cart-api/cart.security.service-token "%SERVICE_AUTH_TOKEN%"
+)
+if defined CART_GATEWAY_TOKEN (
+    consul kv put config/cart-api/cart.security.gateway-token "%CART_GATEWAY_TOKEN%"
+)
+if defined GATEWAY_CART_DOWNSTREAM_TOKEN (
+    consul kv put config/gateway-api/gateway.security.cart-downstream-token "%GATEWAY_CART_DOWNSTREAM_TOKEN%"
+)
+
 consul kv put config/product-api/app.promotion.message "Customer Week Promotion"
 consul kv put config/product-api,it/app.promotion.message "Promozione Settimana del Cliente"
 

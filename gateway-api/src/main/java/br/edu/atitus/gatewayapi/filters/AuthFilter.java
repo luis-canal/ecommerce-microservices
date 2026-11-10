@@ -34,17 +34,20 @@ public class AuthFilter implements GlobalFilter, Ordered {
     private final String serviceToken;
     private final String inventoryDownstreamToken;
     private final String orderDownstreamToken;
+    private final String cartDownstreamToken;
 
     public AuthFilter(
             TokenRevocationClient tokenRevocationClient,
             @Value("${gateway.security.service-token:}") String serviceToken,
             @Value("${gateway.security.inventory-downstream-token:}") String inventoryDownstreamToken,
-            @Value("${gateway.security.order-downstream-token:}") String orderDownstreamToken
+            @Value("${gateway.security.order-downstream-token:}") String orderDownstreamToken,
+            @Value("${gateway.security.cart-downstream-token:}") String cartDownstreamToken
     ) {
         this.tokenRevocationClient = tokenRevocationClient;
         this.serviceToken = serviceToken;
         this.inventoryDownstreamToken = inventoryDownstreamToken;
         this.orderDownstreamToken = orderDownstreamToken;
+        this.cartDownstreamToken = cartDownstreamToken;
     }
 
     @Override
@@ -123,6 +126,9 @@ public class AuthFilter implements GlobalFilter, Ordered {
         if (isOrderPath(path)) {
             return forwardWithDownstreamToken(exchange, chain, request, orderDownstreamToken);
         }
+        if (isCartPath(path)) {
+            return forwardWithDownstreamToken(exchange, chain, request, cartDownstreamToken);
+        }
         return chain.filter(exchange.mutate().request(request).build());
     }
 
@@ -148,6 +154,10 @@ public class AuthFilter implements GlobalFilter, Ordered {
     private boolean isOrderPath(String path) {
         return path.equals("/ws/orders") || path.startsWith("/ws/orders/")
                 || path.equals("/ws/admin/orders") || path.startsWith("/ws/admin/orders/");
+    }
+
+    private boolean isCartPath(String path) {
+        return path.equals("/ws/cart") || path.startsWith("/ws/cart/");
     }
 
     private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status) {
