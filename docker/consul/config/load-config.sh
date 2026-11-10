@@ -218,7 +218,7 @@ put "config/gateway-api/gateway.security.order-downstream-token" "$GATEWAY_ORDER
 # INVENTORY API
 # ==========================================================
 
-put "config/inventory-api/server.port" "8003"
+put "config/inventory-api/server.port" "8400"
 
 # Banco de dados
 put "config/inventory-api/spring.datasource.url" \

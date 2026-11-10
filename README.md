@@ -145,7 +145,7 @@ Responsável pela quantidade física, disponibilidade comercial do estoque, hist
 - Cria reservas para vários produtos atomicamente, com expiração em 10 minutos.
 - Confirma, libera e expira reservas sem permitir dupla baixa ou dupla liberação.
 
-O serviço e seu PostgreSQL utilizam, respectivamente, as portas 8003 e 5432 na rede Docker. Os endpoints estão detalhados em [API.md](./API.md).
+O serviço e seu PostgreSQL utilizam, respectivamente, as portas 8400 e 5432 na rede Docker. Os endpoints estão detalhados em [API.md](./API.md).
 
 ### 4. Conversão de moedas — `currency-api`
 
