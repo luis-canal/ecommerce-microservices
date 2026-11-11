@@ -326,6 +326,24 @@ services:
     networks:
       - backend
 
+  # ==========================================================
+  # PROMETHEUS - METRICS COLLECTION
+  # ==========================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    restart: unless-stopped
+    networks:
+      - backend
+
 # ============================================================
 # REDE INTERNA
 # ============================================================
@@ -345,3 +363,4 @@ volumes:
   order_data:
   cart_data:
   auth_internal_secret:
+  prometheus_data:
