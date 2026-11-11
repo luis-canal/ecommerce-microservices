@@ -1,0 +1,61 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+
+  # ========================================================
+  # GATEWAY API
+  # ========================================================
+  - job_name: 'gateway-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['gateway-api:8080']
+
+  # ========================================================
+  # AUTH API
+  # ========================================================
+  - job_name: 'auth-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['auth-api:8200']
+
+  # ========================================================
+  # PRODUCT API
+  # ========================================================
+  - job_name: 'product-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['product-api:8000']
+
+  # ========================================================
+  # CURRENCY API
+  # ========================================================
+  - job_name: 'currency-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['currency-api:8100']
+
+  # ========================================================
+  # ORDER API
+  # ========================================================
+  - job_name: 'order-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['order-api:8300']
+
+  # ========================================================
+  # CART API
+  # ========================================================
+  - job_name: 'cart-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['cart-api:8600']
+
+  # ========================================================
+  # INVENTORY API
+  # ========================================================
+  - job_name: 'inventory-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['inventory-api:8400']
