@@ -314,6 +314,18 @@ services:
       - backend
     restart: unless-stopped
 
+  # ==========================================================
+  # ZIPKIN - DISTRIBUTED TRACING
+  # ==========================================================
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    restart: unless-stopped
+    networks:
+      - backend
+
 # ============================================================
 # REDE INTERNA
 # ============================================================
