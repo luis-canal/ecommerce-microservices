@@ -282,6 +282,20 @@ put "config/cart-api/cart.clients.product-api.base-url" "http://product-api"
 put "config/cart-api/cart.clients.inventory-api.base-url" "http://inventory-api"
 
 # ==========================================================
+# OBSERVABILIDADE - MÉTRICAS E TRACING
+# ==========================================================
+
+# Identificação das aplicações
+put "config/application/management.prometheus.metrics.export.enabled" "true"
+
+# Tracing
+put "config/application/management.tracing.enabled" "true"
+put "config/application/management.tracing.sampling.probability" "1.0"
+
+# Exportação dos traces para Zipkin
+put "config/application/management.tracing.export.zipkin.endpoint" "http://zipkin:9411/api/v2/spans"
+
+# ==========================================================
 # FINALIZAÇÃO
 # ==========================================================
 
