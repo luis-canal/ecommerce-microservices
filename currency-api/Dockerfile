@@ -17,14 +17,14 @@ COPY mvnw pom.xml ./
 RUN chmod +x mvnw
 
 # Pré-carrega as dependências utilizando o cache do BuildKit.
-RUN --mount=type=cache,target=/root/.m2 \
+RUN --mount=type=cache,id=currency-api-maven,target=/root/.m2,sharing=locked \
     ./mvnw -B -DskipTests dependency:go-offline
 
 # Copia o código-fonte somente depois das dependências.
 COPY src/ src/
 
 # Compila a aplicação e gera o JAR executável.
-RUN --mount=type=cache,target=/root/.m2 \
+RUN --mount=type=cache,id=currency-api-maven,target=/root/.m2,sharing=locked \
     ./mvnw -B -DskipTests package \
     && cp target/*.jar /workspace/app.jar
 

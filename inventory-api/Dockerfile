@@ -4,9 +4,9 @@ WORKDIR /workspace
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 RUN sed -i 's/\r$//' mvnw && chmod +x mvnw
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -DskipTests dependency:go-offline
+RUN --mount=type=cache,id=inventory-api-maven,target=/root/.m2,sharing=locked ./mvnw -B -DskipTests dependency:go-offline
 COPY src/ src/
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -DskipTests package \
+RUN --mount=type=cache,id=inventory-api-maven,target=/root/.m2,sharing=locked ./mvnw -B -DskipTests package \
     && cp target/*.jar /workspace/app.jar
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
