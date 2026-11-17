@@ -136,6 +136,44 @@ class AnalyticsIntegrationTest {
     }
 
     @Test
+    void topProductsWithCategoryFilterUsesFactsWhenProductChangedCategoryOnTheSameDay() {
+        // Produto 10 vendido na categoria 1 e, no mesmo dia e UF, já recategorizado para a 3.
+        // O agregado diário guarda uma só categoria para (dia, produto, UF); os fatos guardam a de cada item.
+        serve(List.of(
+                order(1L, "CONFIRMED", "SP", CONFIRMED_AT, item(10L, 2, "40.00", 1L)),
+                order(2L, "CONFIRMED", "SP", CONFIRMED_AT.plusSeconds(10), item(10L, 1, "40.00", 3L)),
+                order(3L, "CONFIRMED", "SP", CONFIRMED_AT.plusSeconds(20), item(11L, 4, "10.00", 1L))
+        ));
+        orderCollector.collect();
+
+        var category1 = queryService.topProductsReport(
+                AnalyticsFilter.of(DAY, DAY, null, null, 1L, null), ProductRanking.UNITS, 10);
+        assertThat(category1.products()).extracting("productId").containsExactly(11L, 10L);
+        var product10InCategory1 = category1.products().get(1);
+        assertThat(product10InCategory1.units()).isEqualTo(2);
+        assertThat(product10InCategory1.revenue()).isEqualByComparingTo("80.00");
+        assertThat(product10InCategory1.orders()).isEqualTo(1);
+        assertThat(product10InCategory1.categoryId()).isEqualTo(1L);
+
+        var category3 = queryService.topProductsReport(
+                AnalyticsFilter.of(DAY, DAY, null, null, 3L, null), ProductRanking.UNITS, 10);
+        assertThat(category3.products()).singleElement().satisfies(p -> {
+            assertThat(p.productId()).isEqualTo(10L);
+            assertThat(p.units()).isEqualTo(1);
+        });
+
+        // O top 5 do overview usa o mesmo caminho.
+        var overview = queryService.overview(AnalyticsFilter.of(DAY, DAY, null, null, 1L, null));
+        assertThat(overview.topProducts()).extracting("productId").containsExactly(11L, 10L);
+
+        // Sem filtro de item, continua usando o agregado e soma o produto inteiro.
+        var all = queryService.topProductsReport(
+                AnalyticsFilter.of(DAY, DAY, null, null, null, null), ProductRanking.UNITS, 10);
+        assertThat(all.products()).filteredOn(p -> p.productId() == 10L)
+                .singleElement().satisfies(p -> assertThat(p.units()).isEqualTo(3));
+    }
+
+    @Test
     void statusChangeRecalculatesAggregates() {
         serve(List.of(order(1L, "CONFIRMED", "SP", CONFIRMED_AT, item(10L, 2, "40.00", 1L))));
         orderCollector.collect();

@@ -175,38 +175,45 @@ public class AnalyticsQueryService {
         return new Metrics(row.revenue(), row.orders(), row.units(), ticket(row.revenue(), row.orders()));
     }
 
+    /**
+     * Ranking de produtos. Sem filtro de categoria/produto usa o agregado diário; com filtro usa
+     * os fatos, como as demais consultas: o agregado guarda uma única categoria por produto e dia,
+     * o que seria impreciso se o produto tivesse mudado de categoria entre pedidos.
+     */
     private List<ProductSales> topProducts(AnalyticsFilter filter, ProductRanking ranking, int limit) {
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("from", Date.valueOf(filter.from()))
-                .addValue("to", Date.valueOf(filter.to()))
-                .addValue("limit", limit);
-        StringBuilder where = new StringBuilder(" WHERE a.sale_date BETWEEN :from AND :to");
-        appendLocationFilters(filter, params, where, "a.state", "a.region");
-        if (filter.categoryId() != null) {
-            where.append(" AND a.category_id = :categoryId");
-            params.addValue("categoryId", filter.categoryId());
-        }
-        if (filter.productId() != null) {
-            where.append(" AND a.product_id = :productId");
-            params.addValue("productId", filter.productId());
-        }
+        MapSqlParameterSource params = new MapSqlParameterSource().addValue("limit", limit);
         String order = ranking == ProductRanking.REVENUE ? "revenue DESC, units DESC" : "units DESC, revenue DESC";
-        return jdbc.query("""
-                SELECT a.product_id, MAX(a.product_name) AS product_name, MAX(a.brand) AS brand,
-                       MAX(a.category_id) AS category_id, MAX(a.category_name) AS category_name,
-                       SUM(a.units_sold) AS units, SUM(a.revenue) AS revenue, SUM(a.order_count) AS orders
-                  FROM agg_product_sales_daily a
-                """ + where + " GROUP BY a.product_id ORDER BY " + order + ", a.product_id LIMIT :limit",
-                params, (rs, rowNum) -> new ProductSales(
-                        rs.getLong("product_id"),
-                        rs.getString("product_name"),
-                        rs.getString("brand"),
-                        (Long) rs.getObject("category_id", Long.class),
-                        rs.getString("category_name"),
-                        rs.getLong("units"),
-                        money(rs.getBigDecimal("revenue")),
-                        rs.getLong("orders")
-                ));
+        String sql;
+        if (filter.hasItemFilter()) {
+            sql = """
+                    SELECT i.product_id, MAX(i.product_name) AS product_name, MAX(i.brand) AS brand,
+                           MAX(i.category_id) AS category_id, MAX(i.category_name) AS category_name,
+                           SUM(i.quantity) AS units, SUM(i.item_total) AS revenue, COUNT(DISTINCT o.order_id) AS orders
+                      FROM analytics_order o JOIN analytics_order_item i ON i.order_id = o.order_id
+                    """ + itemWhere(filter, params)
+                    + " GROUP BY i.product_id ORDER BY " + order + ", i.product_id LIMIT :limit";
+        } else {
+            params.addValue("from", Date.valueOf(filter.from()))
+                    .addValue("to", Date.valueOf(filter.to()));
+            StringBuilder where = new StringBuilder(" WHERE a.sale_date BETWEEN :from AND :to");
+            appendLocationFilters(filter, params, where, "a.state", "a.region");
+            sql = """
+                    SELECT a.product_id, MAX(a.product_name) AS product_name, MAX(a.brand) AS brand,
+                           MAX(a.category_id) AS category_id, MAX(a.category_name) AS category_name,
+                           SUM(a.units_sold) AS units, SUM(a.revenue) AS revenue, SUM(a.order_count) AS orders
+                      FROM agg_product_sales_daily a
+                    """ + where + " GROUP BY a.product_id ORDER BY " + order + ", a.product_id LIMIT :limit";
+        }
+        return jdbc.query(sql, params, (rs, rowNum) -> new ProductSales(
+                rs.getLong("product_id"),
+                rs.getString("product_name"),
+                rs.getString("brand"),
+                (Long) rs.getObject("category_id", Long.class),
+                rs.getString("category_name"),
+                rs.getLong("units"),
+                money(rs.getBigDecimal("revenue")),
+                rs.getLong("orders")
+        ));
     }
 
     private List<CategorySales> categoryRows(AnalyticsFilter filter, int limit) {
