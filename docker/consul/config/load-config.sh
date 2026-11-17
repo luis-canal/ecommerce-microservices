@@ -208,6 +208,23 @@ if [ "${#GATEWAY_CART_TOKEN}" -lt 32 ]; then
     exit 1
 fi
 
+GATEWAY_ANALYTICS_SECRET_FILE="/run/secrets/gateway_analytics_downstream_token"
+if [ ! -s "$GATEWAY_ANALYTICS_SECRET_FILE" ]; then
+    umask 077
+    generated_secret="$(consul keygen)"
+    if [ "${#generated_secret}" -lt 32 ]; then
+        echo "Não foi possível gerar uma credencial Gateway-Analytics válida" >&2
+        exit 1
+    fi
+    printf '%s' "$generated_secret" > "$GATEWAY_ANALYTICS_SECRET_FILE"
+fi
+
+GATEWAY_ANALYTICS_TOKEN="$(cat "$GATEWAY_ANALYTICS_SECRET_FILE")"
+if [ "${#GATEWAY_ANALYTICS_TOKEN}" -lt 32 ]; then
+    echo "A credencial Gateway-Analytics persistida é inválida" >&2
+    exit 1
+fi
+
 put "config/auth-api/server.port" "8200"
 put "config/auth-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
 
@@ -231,6 +248,8 @@ put "config/order-api/order.security.gateway-token" "$GATEWAY_ORDER_TOKEN"
 put "config/gateway-api/gateway.security.order-downstream-token" "$GATEWAY_ORDER_TOKEN"
 put "config/cart-api/cart.security.gateway-token" "$GATEWAY_CART_TOKEN"
 put "config/gateway-api/gateway.security.cart-downstream-token" "$GATEWAY_CART_TOKEN"
+put "config/analytics-api/analytics.security.gateway-token" "$GATEWAY_ANALYTICS_TOKEN"
+put "config/gateway-api/gateway.security.analytics-downstream-token" "$GATEWAY_ANALYTICS_TOKEN"
 
 
 # ==========================================================
@@ -280,6 +299,19 @@ put "config/cart-api/spring.datasource.password" "postgres"
 put "config/cart-api/cart.security.service-token" "$SERVICE_AUTH_TOKEN"
 put "config/cart-api/cart.clients.product-api.base-url" "http://product-api"
 put "config/cart-api/cart.clients.inventory-api.base-url" "http://inventory-api"
+
+# ==========================================================
+# ANALYTICS API
+# ==========================================================
+
+put "config/analytics-api/server.port" "8700"
+put "config/analytics-api/spring.datasource.url"     "jdbc:postgresql://analytics-db:5432/analytics_db"
+put "config/analytics-api/spring.datasource.username" "postgres"
+put "config/analytics-api/spring.datasource.password" "postgres"
+put "config/analytics-api/analytics.security.service-token" "$SERVICE_AUTH_TOKEN"
+put "config/analytics-api/analytics.clients.order-api.base-url" "http://order-api"
+put "config/analytics-api/analytics.clients.inventory-api.base-url" "http://inventory-api"
+put "config/analytics-api/analytics.collection.interval-ms" "300000"
 
 # ==========================================================
 # OBSERVABILIDADE - MÉTRICAS E TRACING
