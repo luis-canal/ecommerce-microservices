@@ -55,6 +55,9 @@ public record AnalyticsFilter(
             try {
                 parsedRegion = BrazilRegion.valueOf(region.trim().toUpperCase(Locale.ROOT).replace('-', '_'));
             } catch (IllegalArgumentException exception) {
+                parsedRegion = null;
+            }
+            if (parsedRegion == null || parsedRegion == BrazilRegion.UNKNOWN) {
                 throw badRequest("Região inválida: " + region
                         + ". Valores aceitos: NORTE, NORDESTE, CENTRO_OESTE, SUDESTE, SUL.");
             }

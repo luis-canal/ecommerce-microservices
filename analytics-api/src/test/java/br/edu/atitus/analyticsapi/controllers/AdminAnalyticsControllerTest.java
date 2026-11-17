@@ -55,6 +55,16 @@ class AdminAnalyticsControllerTest {
     }
 
     @Test
+    void rejectsUnknownRegionAsFilter() {
+        for (String region : new String[]{"UNKNOWN", "unknown", "LESTE"}) {
+            ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                    () -> controller.overview(null, null, null, region, null, null, 0));
+            assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        }
+        verifyNoInteractions(queryService);
+    }
+
+    @Test
     void gatewayFilterRejectsRequestsWithoutTrustedGatewayToken() throws Exception {
         GatewayTokenFilter filter = new GatewayTokenFilter("gateway-secret");
 
