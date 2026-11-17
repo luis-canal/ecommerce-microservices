@@ -1,4 +1,4 @@
-# Documentação da API — Autenticação, catálogo e estoque
+# Documentação da API
 
 Guia para integração com os fluxos de autenticação, catálogo e estoque deste repositório. As rotas abaixo são relativas à URL-base do **API Gateway**; a porta e o host dependem da configuração do ambiente.
 
@@ -1155,3 +1155,358 @@ Quantidade inválida ou tentativa de exceder o estoque retorna `400 Bad Request`
 O frontend envia os itens escolhidos e o endereço diretamente para **`POST /ws/orders`**; o contrato existente de pedido recebe `items` e `shippingAddress`. O `order-api` consulta novamente o catálogo, define os valores finais, calcula o frete e coordena a reserva atômica de todos os itens no `inventory-api`. O carrinho não participa da criação do pedido.
 
 Somente depois de receber `201 Created` do `order-api`, o frontend deve chamar `DELETE /ws/cart/items` para limpar o carrinho. Se a criação do pedido falhar, o frontend mantém o carrinho.
+
+## Analytics
+
+O `analytics-api` fornece os indicadores do painel administrativo. Ele não participa do checkout: em intervalos configuráveis, coleta pedidos do `order-api` e dados de estoque do `inventory-api`, grava uma cópia própria no `analytics_db` e responde às consultas a partir dela. Por isso os números refletem a última coleta concluída, e não o instante exato da consulta.
+
+Todas as rotas abaixo exigem JWT de administrador. O Gateway encaminha as requisições ao Analytics API com uma credencial privada; o serviço também valida o perfil recebido do Gateway e rejeita chamadas diretas.
+
+| Situação | Status |
+|---|---|
+| Sem `Authorization` ou com token inválido/revogado | `401 Unauthorized` |
+| Usuário autenticado sem perfil de administrador | `403 Forbidden` |
+| Administrador | `200 OK` |
+
+### Regras de negócio
+
+- **Venda:** somente pedidos com status `CONFIRMED` e moeda `BRL` são contados. Pedidos pendentes, cancelados, expirados ou com falha são coletados, mas não entram nos indicadores. Se um pedido mudar de status, a coleta seguinte atualiza os números.
+- **Faturamento:** soma do `totalAmount` dos pedidos, que inclui o frete. Os valores por produto, categoria, marca e faixa de preço usam o subtotal de cada item, sem frete.
+- **Data da venda:** `confirmedAt` do pedido convertido para o fuso `America/Sao_Paulo`. Os filtros `from` e `to` usam essa data.
+- **Ticket médio:** faturamento dividido pela quantidade de pedidos confirmados.
+- **Região:** derivada da UF do endereço de entrega, conforme as regiões do IBGE: `NORTE`, `NORDESTE`, `CENTRO_OESTE`, `SUDESTE` e `SUL`.
+- **Faixas de preço:** definidas pelo preço unitário do item no momento da compra.
+
+| Faixa | Preço unitário |
+|---|---|
+| `UP_TO_50` | Até R$ 50,00 |
+| `FROM_50_TO_150` | Acima de R$ 50,00 até R$ 150,00 |
+| `FROM_150_TO_300` | Acima de R$ 150,00 até R$ 300,00 |
+| `FROM_300_TO_600` | Acima de R$ 300,00 até R$ 600,00 |
+| `ABOVE_600` | Acima de R$ 600,00 |
+
+### Coleta periódica
+
+A coleta roda automaticamente a cada `analytics.collection.interval-ms` milissegundos; o padrão é `300000` (5 minutos), configurado no Consul em `config/analytics-api/analytics.collection.interval-ms`. Cada execução processa três fontes, de forma independente:
+
+| Fonte | Origem | O que é coletado |
+|---|---|---|
+| `ORDERS` | `GET /ws/orders/internal/analytics` | Pedidos criados ou atualizados desde a última coleta, com itens e endereço. |
+| `INVENTORY_SNAPSHOT` | `GET /ws/inventory/analytics/summary`, `/out-of-stock` e `/low-stock` | Totais de estoque e produtos sem estoque ou com estoque baixo. |
+| `INVENTORY_MOVEMENTS` | `GET /ws/inventory/analytics/movements` | Movimentações de estoque desde a última coleta. |
+
+A gravação é idempotente: repetir uma coleta não duplica pedidos, itens nem movimentações. As chamadas às origens têm retentativas; se uma origem continuar indisponível, a fonte é registrada como `FAILED` e coletada novamente no ciclo seguinte, sem afetar as demais. Após cada coleta de pedidos, as agregações diárias de vendas dos dias afetados são recalculadas.
+
+### Parâmetros comuns de vendas
+
+Os endpoints de vendas (`overview`, `sales`, `sales/by-region`, `products/top`, `categories` e `price-ranges`) aceitam os filtros abaixo, combináveis entre si:
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `from` | data `YYYY-MM-DD` | Não | Início do período (inclusivo); padrão: 29 dias antes de `to`. |
+| `to` | data `YYYY-MM-DD` | Não | Fim do período (inclusivo); padrão: data atual no fuso de São Paulo. |
+| `state` | string | Não | UF do endereço de entrega, por exemplo `RS`. |
+| `region` | string | Não | `NORTE`, `NORDESTE`, `CENTRO_OESTE`, `SUDESTE` ou `SUL`. |
+| `categoryId` | inteiro | Não | Considera somente itens da categoria. |
+| `productId` | inteiro | Não | Considera somente itens do produto. |
+
+O período padrão cobre os últimos 30 dias, e o máximo é de 5 anos. Todas as respostas de vendas repetem o período e os filtros aplicados, e informam `currency: "BRL"`:
+
+```json
+{
+  "period": { "from": "2026-10-19", "to": "2026-11-17" },
+  "filters": { "state": null, "region": "NORDESTE", "categoryId": null, "productId": null },
+  "currency": "BRL"
+}
+```
+
+Os exemplos abaixo omitem esses campos.
+
+### Resumo de vendas
+
+**`GET /ws/admin/analytics/overview`**
+
+Retorna os totais do período, os cinco produtos com mais unidades vendidas e as cinco categorias com maior faturamento.
+
+```json
+{
+  "totalRevenue": 219.50,
+  "confirmedOrders": 1,
+  "averageTicket": 219.50,
+  "unitsSold": 5,
+  "topProducts": [
+    {
+      "productId": 37,
+      "productName": "Tapa-erva ajustável",
+      "brand": "Campeira",
+      "categoryId": 7,
+      "categoryName": "Acessórios para chimarrão",
+      "units": 3,
+      "revenue": 44.70,
+      "orders": 1
+    }
+  ],
+  "topCategories": [
+    {
+      "categoryId": 3,
+      "categoryName": "Bombas",
+      "revenue": 139.80,
+      "orders": 1,
+      "units": 2,
+      "revenueShare": 75.77
+    }
+  ]
+}
+```
+
+`revenueShare` é a participação percentual no faturamento dos itens do período.
+
+### Evolução das vendas
+
+**`GET /ws/admin/analytics/sales`**
+
+Além dos parâmetros comuns:
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `granularity` | string | Não | `DAY`, `WEEK` ou `MONTH`; padrão `DAY`. |
+
+Retorna um ponto por dia, semana (iniciada na segunda-feira) ou mês, inclusive os períodos sem vendas, com valores zerados.
+
+```json
+{
+  "granularity": "DAY",
+  "totals": { "revenue": 219.50, "orders": 1, "units": 5, "averageTicket": 219.50 },
+  "points": [
+    { "periodStart": "2026-11-16", "revenue": 0.00, "orders": 0, "units": 0, "averageTicket": 0.00 },
+    { "periodStart": "2026-11-17", "revenue": 219.50, "orders": 1, "units": 5, "averageTicket": 219.50 }
+  ]
+}
+```
+
+### Vendas por região e estado
+
+**`GET /ws/admin/analytics/sales/by-region`**
+
+Retorna as cinco regiões, inclusive as sem vendas, e os estados com vendas no período.
+
+```json
+{
+  "totals": { "revenue": 219.50, "orders": 1, "units": 5, "averageTicket": 219.50 },
+  "regions": [
+    {
+      "region": "NORDESTE",
+      "regionName": "Nordeste",
+      "revenue": 219.50,
+      "orders": 1,
+      "units": 5,
+      "averageTicket": 219.50,
+      "revenueShare": 100.00
+    }
+  ],
+  "states": [
+    {
+      "state": "BA",
+      "region": "NORDESTE",
+      "revenue": 219.50,
+      "orders": 1,
+      "units": 5,
+      "averageTicket": 219.50,
+      "revenueShare": 100.00
+    }
+  ]
+}
+```
+
+### Produtos mais vendidos
+
+**`GET /ws/admin/analytics/products/top`**
+
+Além dos parâmetros comuns:
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `rankBy` | string | Não | `UNITS` (unidades vendidas) ou `REVENUE` (faturamento); padrão `UNITS`. |
+| `limit` | inteiro | Não | Quantidade de produtos; padrão `10`, máximo `100`. |
+
+```json
+{
+  "rankBy": "REVENUE",
+  "products": [
+    {
+      "productId": 26,
+      "productName": "Bomba de chimarrão acabamento prata",
+      "brand": "Prata Sul",
+      "categoryId": 3,
+      "categoryName": "Bombas",
+      "units": 2,
+      "revenue": 139.80,
+      "orders": 1
+    }
+  ]
+}
+```
+
+### Desempenho por categoria e marca
+
+**`GET /ws/admin/analytics/categories`**
+
+Além dos parâmetros comuns, aceita `limit` (padrão `20`, máximo `100`), aplicado separadamente às categorias e às marcas. Ambas as listas são ordenadas por faturamento.
+
+```json
+{
+  "categories": [
+    { "categoryId": 3, "categoryName": "Bombas", "revenue": 139.80, "orders": 1, "units": 2, "revenueShare": 75.77 },
+    { "categoryId": 7, "categoryName": "Acessórios para chimarrão", "revenue": 44.70, "orders": 1, "units": 3, "revenueShare": 24.23 }
+  ],
+  "brands": [
+    { "brand": "Prata Sul", "revenue": 139.80, "orders": 1, "units": 2, "revenueShare": 75.77 },
+    { "brand": "Campeira", "revenue": 44.70, "orders": 1, "units": 3, "revenueShare": 24.23 }
+  ]
+}
+```
+
+### Vendas por faixa de preço
+
+**`GET /ws/admin/analytics/price-ranges`**
+
+Retorna todas as faixas, inclusive as sem vendas.
+
+```json
+{
+  "ranges": [
+    { "range": "UP_TO_50", "label": "Até R$ 50", "minExclusive": null, "maxInclusive": 50.00, "units": 3, "revenue": 44.70, "orders": 1 },
+    { "range": "FROM_50_TO_150", "label": "R$ 50 – R$ 150", "minExclusive": 50.00, "maxInclusive": 150.00, "units": 2, "revenue": 139.80, "orders": 1 }
+  ]
+}
+```
+
+### Indicadores de estoque
+
+**`GET /ws/admin/analytics/inventory`**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `from` | data `YYYY-MM-DD` | Não | Início do período do histórico; padrão: últimos 30 dias. |
+| `to` | data `YYYY-MM-DD` | Não | Fim do período do histórico; padrão: data atual. |
+| `granularity` | string | Não | `DAY`, `WEEK` ou `MONTH` para o histórico; padrão `DAY`. |
+| `limit` | inteiro | Não | Máximo de itens nas listas sem estoque e com estoque baixo; padrão `50`, máximo `100`. |
+
+`summary`, `outOfStock` e `lowStock` refletem o snapshot mais recente. `availabilityHistory` traz um ponto por período, com o último snapshot de cada um, e `movementTotals` soma as movimentações do período por tipo; quantidades negativas representam saídas.
+
+```json
+{
+  "period": { "from": "2026-10-19", "to": "2026-11-17" },
+  "granularity": "DAY",
+  "summary": {
+    "capturedAt": "2026-11-17T16:52:49.158722Z",
+    "inventoryCount": 3,
+    "quantityOnHand": 145,
+    "quantityReserved": 0,
+    "availableQuantity": 145,
+    "outOfStockCount": 0,
+    "lowStockCount": 0
+  },
+  "outOfStock": [],
+  "lowStock": [],
+  "availabilityHistory": [
+    {
+      "periodStart": "2026-11-17",
+      "capturedAt": "2026-11-17T16:52:49.158722Z",
+      "quantityOnHand": 145,
+      "quantityReserved": 0,
+      "availableQuantity": 145,
+      "outOfStockCount": 0,
+      "lowStockCount": 0
+    }
+  ],
+  "movementTotals": [
+    { "movementType": "ENTRY", "movements": 3, "quantity": 150 },
+    { "movementType": "RESERVATION_CONFIRMATION", "movements": 2, "quantity": -5 }
+  ]
+}
+```
+
+As definições de "sem estoque" e "estoque baixo" são as do `inventory-api`: disponibilidade zero e quantidade física no limite configurado ou abaixo dele, respectivamente.
+
+### Movimentações de estoque
+
+**`GET /ws/admin/analytics/inventory/movements`**
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `from` | data `YYYY-MM-DD` | Não | Início do período; padrão: últimos 30 dias. |
+| `to` | data `YYYY-MM-DD` | Não | Fim do período; padrão: data atual. |
+| `productId` | inteiro | Não | Filtra por produto. |
+| `movementType` | string | Não | Filtra por tipo, por exemplo `ENTRY` ou `RESERVATION_CONFIRMATION`. |
+| `page` | inteiro | Não | Página baseada em zero; padrão `0`. |
+| `size` | inteiro | Não | Itens por página; padrão `20`, máximo `100`. |
+
+As movimentações são ordenadas da mais recente para a mais antiga.
+
+```json
+{
+  "period": { "from": "2026-10-19", "to": "2026-11-17" },
+  "content": [
+    {
+      "id": 5,
+      "productId": 37,
+      "movementType": "RESERVATION_CONFIRMATION",
+      "quantityDelta": -3,
+      "reason": "Confirmação da reserva 8",
+      "orderId": 8,
+      "reservationId": 8,
+      "createdAt": "2026-11-17T16:23:45.573078Z"
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 5,
+  "totalPages": 1
+}
+```
+
+### Controle das coletas
+
+**`GET /ws/admin/analytics/collections`**
+
+Retorna a situação de cada fonte e as 20 execuções mais recentes, da mais nova para a mais antiga. `cursorAt` é o ponto até onde a fonte já foi coletada; `lastStatus` pode ser `SUCCESS`, `FAILED`, `RUNNING` ou `NEVER_RUN`.
+
+```json
+{
+  "sources": [
+    {
+      "source": "ORDERS",
+      "cursorAt": "2026-11-17T16:33:15.884417Z",
+      "lastAttemptAt": "2026-11-17T16:52:48.837417Z",
+      "lastSuccessAt": "2026-11-17T16:52:49.090547Z",
+      "lastStatus": "SUCCESS",
+      "lastError": null
+    }
+  ],
+  "recentRuns": [
+    {
+      "id": 135,
+      "source": "INVENTORY_MOVEMENTS",
+      "startedAt": "2026-11-17T16:52:49.193563Z",
+      "finishedAt": "2026-11-17T16:52:49.215413Z",
+      "status": "SUCCESS",
+      "recordsProcessed": 0,
+      "errorMessage": null
+    }
+  ]
+}
+```
+
+**`POST /ws/admin/analytics/collections/run`**
+
+Executa a coleta imediatamente, sem aguardar o próximo ciclo, por exemplo depois de uma indisponibilidade das origens. Não tem corpo. Retorna `200 OK` com o mesmo formato de `GET /collections` ao final da execução. Se já houver uma coleta em andamento, nada é executado e a resposta é `202 Accepted` com a situação atual.
+
+### Erros comuns
+
+| Status | Quando ocorre |
+|---|---|
+| `400 Bad Request` | Data inválida, `from` posterior a `to`, período maior que 5 anos, UF ou região inválida, `granularity` ou `rankBy` desconhecido, `limit`/`size` menor que 1 ou `page` negativa. |
+| `401 Unauthorized` | Requisição sem JWT válido ou que não passou pelo Gateway. |
+| `403 Forbidden` | Usuário autenticado sem perfil de administrador. |
+| `500 Internal Server Error` | O Analytics API está indisponível. Checkout e pedidos não são afetados. |
