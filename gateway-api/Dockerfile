@@ -14,7 +14,7 @@ COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 
 # Garante a execução do Maven Wrapper.
-RUN chmod +x mvnw
+RUN sed -i 's/\r$//' mvnw && chmod +x mvnw
 
 # Pré-carrega as dependências utilizando o cache do BuildKit.
 RUN --mount=type=cache,id=gateway-api-maven,target=/root/.m2,sharing=locked \
