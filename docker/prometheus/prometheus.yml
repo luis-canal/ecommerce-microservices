@@ -59,3 +59,11 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['inventory-api:8400']
+
+  # ========================================================
+  # ANALYTICS API
+  # ========================================================
+  - job_name: 'analytics-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['analytics-api:8700']

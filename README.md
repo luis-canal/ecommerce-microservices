@@ -2,7 +2,7 @@
 
 Projeto acadêmico de um **e-commerce de artigos gaúchos**, desenvolvido com arquitetura de microsserviços utilizando Java e Spring Boot.
 
-A aplicação é composta por sete microsserviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas, carrinho, pedidos e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
+A aplicação é composta por oito microsserviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas, carrinho, pedidos e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
 
 O objetivo é construir uma base de e-commerce distribuída, explorando conceitos de desenvolvimento backend, APIs REST, autenticação, persistência de dados e comunicação entre microsserviços.
 
@@ -10,7 +10,7 @@ Consulte [API.md](./API.md) para a documentação detalhada dos fluxos de autent
 
 ## Arquitetura
 
-O projeto é organizado em sete microsserviços:
+O projeto é organizado em oito microsserviços:
 
 | Serviço | Responsabilidade |
 |---|---|
@@ -21,6 +21,7 @@ O projeto é organizado em sete microsserviços:
 | `currency-api` | Consulta de taxas cambiais e conversão de moedas. |
 | `cart-api` | Carrinho persistente por cliente, quantidades desejadas e estimativa de subtotal. |
 | `order-api` | Checkout, valores definitivos, frete, pedidos e coordenação da reserva atômica de estoque. |
+| `analytics-api` | Coleta periódica de pedidos e estoque, agregações e indicadores para o painel administrativo. |
 
 ### Fluxo de comunicação
 
@@ -35,7 +36,13 @@ CLIENTE -> GATEWAY API -> CART API -> PRODUCT API -> CURRENCY API -> BANCO CENTR
                     INVENTORY API <--- ORDER API --------+
                          ^               |
                          +---------------+
+
+ADMIN -> GATEWAY API -> ANALYTICS API -(coleta periódica)-> ORDER API
+                             |
+                             +--------(coleta periódica)-> INVENTORY API
 ```
+
+O `analytics-api` não participa do fluxo síncrono de compra. Em intervalos configuráveis (padrão de 5 minutos), ele consulta os endpoints internos de analytics do `order-api` e do `inventory-api`, grava os dados em seu próprio banco e responde às consultas do painel administrativo a partir dessa cópia. Se o `analytics-api` estiver fora do ar, checkout e pedidos continuam funcionando; se uma origem estiver indisponível, a coleta é repetida no ciclo seguinte.
 
 Cada microsserviço possui sua própria responsabilidade e configuração de persistência.
 O `cart-api` consulta o catálogo e a disponibilidade para mostrar uma estimativa, mas não reserva estoque nem calcula frete. O frontend envia os itens e o endereço diretamente ao `order-api`; depois da criação bem-sucedida do pedido, o frontend limpa o carrinho.
@@ -204,6 +211,38 @@ As rotas protegidas utilizam o prefixo `/ws/**`.
 
 O gateway possui rotas configuradas para autenticação, produtos, moedas, estoque, carrinho, pedidos e operações protegidas. Nas chamadas ao `inventory-api`, ele encaminha a credencial interna de downstream; chamadas entre serviços também usam credencial serviço-a-serviço.
 
+### 8. Analytics — `analytics-api`
+
+Responsável pelos indicadores do painel administrativo. Coleta periodicamente os dados do `order-api` e do `inventory-api`, mantém uma cópia própria e pré-agregada no banco `analytics_db` e responde às consultas sem acessar os serviços de origem.
+
+- Consome somente as APIs internas do `order-api` e do `inventory-api`; não acessa os bancos de dados de outros microsserviços.
+- Coleta incremental de pedidos por data de atualização, captando também mudanças de status (confirmação, cancelamento, expiração).
+- Coleta de snapshots de estoque, produtos sem estoque, produtos com estoque baixo e movimentações.
+- Gravação idempotente: repetir uma coleta não duplica pedidos, itens ou movimentações.
+- Agregações diárias pré-processadas de vendas por estado, região e produto.
+- Faturamento, pedidos confirmados, ticket médio e unidades vendidas, com evolução diária, semanal ou mensal.
+- Vendas por região e estado, produtos mais vendidos, desempenho por categoria e marca, e faixas de preço.
+- Filtros por período, estado, região, categoria e produto.
+- Retentativas nas chamadas às origens, histórico das execuções e disparo manual da coleta.
+- Somente pedidos `CONFIRMED` em BRL contam como venda; o faturamento é o `totalAmount` do pedido, com frete.
+
+**Principais endpoints (administrador):**
+
+| Método | Endpoint | Descrição |
+|---|---|---|
+| GET | `/ws/admin/analytics/overview` | Resumo de vendas do período |
+| GET | `/ws/admin/analytics/sales` | Evolução das vendas ao longo do tempo |
+| GET | `/ws/admin/analytics/sales/by-region` | Vendas por região e estado |
+| GET | `/ws/admin/analytics/products/top` | Produtos mais vendidos |
+| GET | `/ws/admin/analytics/categories` | Desempenho por categoria e marca |
+| GET | `/ws/admin/analytics/price-ranges` | Vendas por faixa de preço |
+| GET | `/ws/admin/analytics/inventory` | Indicadores de estoque |
+| GET | `/ws/admin/analytics/inventory/movements` | Movimentações de estoque coletadas |
+| GET | `/ws/admin/analytics/collections` | Situação e histórico das coletas |
+| POST | `/ws/admin/analytics/collections/run` | Dispara a coleta manualmente |
+
+O serviço e seu banco dedicado utilizam, respectivamente, as portas 8700 e 5432 na rede Docker. O intervalo da coleta é definido no Consul pela chave `config/analytics-api/analytics.collection.interval-ms` (padrão `300000`, 5 minutos). Os endpoints estão detalhados em [API.md](./API.md).
+
 ## Segurança
 
 A autenticação utiliza JWT (JSON Web Token).
@@ -219,6 +258,8 @@ O gateway valida o token e encaminha os dados de identidade do usuário aos serv
 O cadastro de produtos é restrito a usuários administradores. Usuários autenticados sem essa permissão recebem uma resposta de acesso negado.
 
 O `inventory-api` e o `cart-api` validam credenciais privadas do Gateway. As consultas internas do `cart-api` ao catálogo e ao estoque usam credencial serviço-a-serviço. Em produção, configure Consul com ACL/TLS e um gerenciador de segredos.
+
+As rotas `/ws/admin/analytics/**` exigem JWT de administrador: sem token o Gateway responde `401`, e usuários sem perfil de administrador recebem `403`. O `analytics-api` aceita somente requisições encaminhadas pelo Gateway com sua credencial privada; chamadas diretas ao serviço são rejeitadas. Para coletar dados, ele chama o `order-api` e o `inventory-api` com a credencial serviço-a-serviço.
 
 ## Banco de dados e persistência
 
@@ -240,6 +281,9 @@ Os bancos utilizados incluem:
 - `db_inventory`
 - `db_order`
 - `db_cart`
+- `analytics_db`
+
+O `analytics_db` guarda a cópia dos pedidos e itens coletados, as agregações diárias de vendas, os snapshots e movimentações de estoque, o progresso de cada coleta e o histórico de execuções.
 
 As configurações de conexão devem corresponder às propriedades de cada serviço.
 
@@ -250,6 +294,8 @@ O projeto utiliza HashiCorp Consul como parte da infraestrutura de configuraçã
 O `load-config.sh`, executado pelo Docker Compose, cadastra no Consul as propriedades utilizadas pelos microsserviços e provisiona credenciais internas para as integrações.
 
 As configurações incluem propriedades de execução, conexão com PostgreSQL e parâmetros de integração com serviços externos.
+
+Para o `analytics-api`, o script cadastra a porta, a conexão com o `analytics_db`, as URLs do `order-api` e do `inventory-api`, as credenciais internas e o intervalo da coleta periódica (`analytics.collection.interval-ms`).
 
 O Consul em modo de desenvolvimento não oferece persistência dos dados de configuração após o encerramento da instância.
 
@@ -274,6 +320,8 @@ docker compose -f docker/docker-compose.yml up --build
 ```
 
 O script gera cinco segredos se ainda não existirem, grava-os no volume `auth_internal_secret` e publica os valores no KV do Consul. A credencial serviço-a-serviço é compartilhada pelos serviços que realizam chamadas internas; as credenciais de encaminhamento do Gateway são distintas para Inventory, Order e Cart. Os valores são preservados enquanto o volume existir. Não execute `docker compose down -v` se quiser conservar as credenciais e os dados dos bancos.
+
+O `analytics-api` acrescenta mais uma credencial de encaminhamento do Gateway, gerada e persistida da mesma forma que as demais.
 
 O Consul configurado com `-dev` é para desenvolvimento local; ele não persiste suas chaves após a remoção/recriação do container. O script repopula o KV ao iniciar o Compose, usando as credenciais persistidas. Em produção, use Consul com ACL/TLS e um gerenciador de segredos apropriado em vez do modo de desenvolvimento.
 
@@ -351,6 +399,13 @@ mvn spring-boot:run
 
 ```bash
 cd order-api
+./mvnw spring-boot:run
+```
+
+**Analytics API**
+
+```bash
+cd analytics-api
 ./mvnw spring-boot:run
 ```
 
@@ -439,6 +494,8 @@ ecommerce-microservices/
 │   └── Serviço de carrinho persistente
 ├── order-api/
 │   └── Serviço de pedidos e checkout
+├── analytics-api/
+│   └── Serviço de coleta e indicadores do painel administrativo
 │
 ├── gateway-api/
 │   └── Gateway e roteamento das requisições
