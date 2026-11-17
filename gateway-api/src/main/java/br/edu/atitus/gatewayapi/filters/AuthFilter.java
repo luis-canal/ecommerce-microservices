@@ -35,19 +35,22 @@ public class AuthFilter implements GlobalFilter, Ordered {
     private final String inventoryDownstreamToken;
     private final String orderDownstreamToken;
     private final String cartDownstreamToken;
+    private final String analyticsDownstreamToken;
 
     public AuthFilter(
             TokenRevocationClient tokenRevocationClient,
             @Value("${gateway.security.service-token:}") String serviceToken,
             @Value("${gateway.security.inventory-downstream-token:}") String inventoryDownstreamToken,
             @Value("${gateway.security.order-downstream-token:}") String orderDownstreamToken,
-            @Value("${gateway.security.cart-downstream-token:}") String cartDownstreamToken
+            @Value("${gateway.security.cart-downstream-token:}") String cartDownstreamToken,
+            @Value("${gateway.security.analytics-downstream-token:}") String analyticsDownstreamToken
     ) {
         this.tokenRevocationClient = tokenRevocationClient;
         this.serviceToken = serviceToken;
         this.inventoryDownstreamToken = inventoryDownstreamToken;
         this.orderDownstreamToken = orderDownstreamToken;
         this.cartDownstreamToken = cartDownstreamToken;
+        this.analyticsDownstreamToken = analyticsDownstreamToken;
     }
 
     @Override
@@ -129,6 +132,9 @@ public class AuthFilter implements GlobalFilter, Ordered {
         if (isCartPath(path)) {
             return forwardWithDownstreamToken(exchange, chain, request, cartDownstreamToken);
         }
+        if (isAnalyticsPath(path)) {
+            return forwardWithDownstreamToken(exchange, chain, request, analyticsDownstreamToken);
+        }
         return chain.filter(exchange.mutate().request(request).build());
     }
 
@@ -154,6 +160,10 @@ public class AuthFilter implements GlobalFilter, Ordered {
     private boolean isOrderPath(String path) {
         return path.equals("/ws/orders") || path.startsWith("/ws/orders/")
                 || path.equals("/ws/admin/orders") || path.startsWith("/ws/admin/orders/");
+    }
+
+    private boolean isAnalyticsPath(String path) {
+        return path.equals("/ws/admin/analytics") || path.startsWith("/ws/admin/analytics/");
     }
 
     private boolean isCartPath(String path) {
