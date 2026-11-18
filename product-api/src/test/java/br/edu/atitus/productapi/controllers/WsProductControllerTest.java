@@ -1,16 +1,23 @@
 package br.edu.atitus.productapi.controllers;
 
 import br.edu.atitus.productapi.dtos.ProductImageResponse;
+import br.edu.atitus.productapi.dtos.ProductResponse;
+import br.edu.atitus.productapi.dtos.ProductSearchCriteria;
 import br.edu.atitus.productapi.dtos.ProductWithImages;
 import br.edu.atitus.productapi.entities.CategoryEntity;
 import br.edu.atitus.productapi.entities.ProductEntity;
 import br.edu.atitus.productapi.entities.SubcategoryEntity;
+import br.edu.atitus.productapi.enums.ProductStatusFilter;
 import br.edu.atitus.productapi.enums.ProductType;
 import br.edu.atitus.productapi.services.ProductService;
 import br.edu.atitus.productapi.servicesimpl.AuthorizationService;
 import br.edu.atitus.productapi.servicesimpl.ProductImageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.JsonNode;
@@ -26,14 +33,17 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
@@ -52,7 +62,9 @@ class WsProductControllerTest {
         service = mock(ProductService.class);
         imageService = mock(ProductImageService.class);
         mockMvc = standaloneSetup(new WsProductController(
-                service, new AuthorizationService(), imageService, objectMapper)).build();
+                service, new AuthorizationService(), imageService, objectMapper))
+                .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
+                .build();
     }
 
     @Test
@@ -144,6 +156,129 @@ class WsProductControllerTest {
             assertEquals("Porongo", after.get("subcategory").get("name").asString());
             assertEquals("Cuias", after.get("subcategory").get("category").get("name").asString());
         }
+    }
+
+    @Test
+    void adminListingDefaultsToActiveStatusAndCurrentPagination() throws Exception {
+        when(service.findAll(any(), any(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+        mockMvc.perform(get("/ws/products").header("X-User-Type", 0))
+                .andExpect(status().isOk());
+
+        verify(service).findAll(
+                eq(new ProductSearchCriteria(null, null, null, null, null, ProductStatusFilter.ACTIVE)),
+                eq(PageRequest.of(0, 10, Sort.by("description"))),
+                eq("BRL")
+        );
+    }
+
+    @Test
+    void adminListingForwardsInactiveStatusCombinedWithFiltersAndPagination() throws Exception {
+        var inactive = productResponse(false);
+        when(service.findAll(any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(inactive), PageRequest.of(1, 5), 6));
+
+        mockMvc.perform(get("/ws/products")
+                        .param("status", "INACTIVE")
+                        .param("name", "cuia")
+                        .param("categoryId", "2")
+                        .param("subcategoryId", "7")
+                        .param("minPrice", "50.00")
+                        .param("maxPrice", "100.00")
+                        .param("targetCurrency", "USD")
+                        .param("page", "1")
+                        .param("size", "5")
+                        .param("sort", "price,asc")
+                        .header("X-User-Type", 0))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].active").value(false));
+
+        verify(service).findAll(
+                eq(new ProductSearchCriteria("cuia", 2L, 7L, new BigDecimal("50.00"), new BigDecimal("100.00"),
+                        ProductStatusFilter.INACTIVE)),
+                eq(PageRequest.of(1, 5, Sort.by(Sort.Direction.ASC, "price"))),
+                eq("USD")
+        );
+    }
+
+    @Test
+    void adminListingAcceptsAllStatus() throws Exception {
+        when(service.findAll(any(), any(), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+        mockMvc.perform(get("/ws/products").param("status", "ALL").header("X-User-Type", 0))
+                .andExpect(status().isOk());
+
+        verify(service).findAll(
+                eq(new ProductSearchCriteria(null, null, null, null, null, ProductStatusFilter.ALL)),
+                any(),
+                eq("BRL")
+        );
+    }
+
+    @Test
+    void adminListingRejectsInvalidStatus() throws Exception {
+        mockMvc.perform(get("/ws/products").param("status", "DELETED").header("X-User-Type", 0))
+                .andExpect(status().isBadRequest());
+
+        verify(service, never()).findAll(any(), any(), any());
+    }
+
+    @Test
+    void customerCannotUseAdminListingWithAnyStatus() throws Exception {
+        for (String value : List.of("ACTIVE", "INACTIVE", "ALL")) {
+            mockMvc.perform(get("/ws/products").param("status", value).header("X-User-Type", 1))
+                    .andExpect(status().isForbidden());
+        }
+        mockMvc.perform(get("/ws/products").header("X-User-Type", 1))
+                .andExpect(status().isForbidden());
+
+        verify(service, never()).findAll(any(), any(), any());
+    }
+
+    @Test
+    void adminCanReadInactiveProductDetail() throws Exception {
+        when(service.findByIdForAdmin(1L, "BRL")).thenReturn(productResponse(false));
+
+        mockMvc.perform(get("/ws/products/1").header("X-User-Type", 0))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.active").value(false));
+
+        verify(service).findByIdForAdmin(1L, "BRL");
+        verify(service, never()).findById(any(), any());
+    }
+
+    @Test
+    void adminDetailReturnsNotFoundForUnknownProduct() throws Exception {
+        when(service.findByIdForAdmin(99L, "BRL"))
+                .thenThrow(new jakarta.persistence.EntityNotFoundException("Produto não encontrado"));
+
+        mockMvc.perform(get("/ws/products/99").header("X-User-Type", 0))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void customerCannotUseAdminDetail() throws Exception {
+        mockMvc.perform(get("/ws/products/1").header("X-User-Type", 1))
+                .andExpect(status().isForbidden());
+
+        verify(service, never()).findByIdForAdmin(any(), anyString());
+    }
+
+    @Test
+    void nonGetEndpointsKeepPreviousTypeMismatchHandling() throws Exception {
+        mockMvc.perform(patch("/ws/products/abc/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"active\":false}")
+                        .header("X-User-Type", 0))
+                .andExpect(status().isInternalServerError());
+    }
+
+    private static ProductResponse productResponse(boolean active) {
+        var product = fullProduct();
+        product.setActive(active);
+        return ProductResponse.fromEntity(product, List.of(), "env", "promo", "BRL", new BigDecimal("75.00"));
     }
 
     private JsonNode read(String json) {

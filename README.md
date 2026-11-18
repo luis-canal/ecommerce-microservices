@@ -111,6 +111,7 @@ Responsável pela consulta e pelo ciclo de vida dos produtos do catálogo.
 - Edição, desativação e reativação de produtos restritas a administradores.
 - Classificação dos produtos como unitários ou multi-unitários; o controle das quantidades é responsabilidade do `inventory-api`.
 - Produtos inativos não são exibidos nas consultas públicas.
+- Administradores listam e consultam produtos inativos por `GET /ws/products?status=INACTIVE|ALL` e `GET /ws/products/{id}`; sem `status`, a listagem administrativa é idêntica à pública. `INACTIVE` traz produtos com `active = false`; um produto ativo em categoria/subcategoria inativa aparece somente em `ALL`. Detalhes em [API.md](./API.md#listar-produtos-administrador-incluindo-inativos).
 - Validação de campos obrigatórios e preços positivos.
 - Carregamento de dados iniciais por migrações Flyway.
 - Upload de imagens de produto (JPEG, PNG e WebP) para o Supabase Storage via API S3, com imagem principal e até 8 imagens por produto.
@@ -124,6 +125,8 @@ Responsável pela consulta e pelo ciclo de vida dos produtos do catálogo.
 | POST | `/ws/products` | Cadastra produto (administrador) |
 | PUT | `/ws/products/{id}` | Edita dados permitidos (administrador) |
 | PATCH | `/ws/products/{id}/status` | Desativa ou reativa um produto (administrador) |
+| GET | `/ws/products` | Lista produtos com filtro `status=ACTIVE\|INACTIVE\|ALL` e os mesmos filtros/paginação do catálogo (administrador) |
+| GET | `/ws/products/{id}` | Consulta produto por ID, inclusive inativo (administrador) |
 | POST | `/ws/products/{id}/images` | Envia imagem do produto, multipart com campo `file` (administrador) |
 | GET | `/ws/products/{id}/images` | Lista as imagens do produto (administrador) |
 | PATCH | `/ws/products/{id}/images/{imageId}/primary` | Define a imagem principal (administrador) |

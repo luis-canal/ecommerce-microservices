@@ -38,7 +38,8 @@ public class ProductSearchRepositoryImpl implements ProductSearchRepository {
                 criteria.categoryId(),
                 criteria.subcategoryId(),
                 null,
-                null
+                null,
+                criteria.status()
         );
         query.select(builder.upper(product.get("currency")))
                 .distinct(true)
@@ -89,9 +90,17 @@ public class ProductSearchRepositoryImpl implements ProductSearchRepository {
             Expression<BigDecimal> convertedPrice
     ) {
         List<Predicate> predicates = new ArrayList<>();
-        predicates.add(builder.isTrue(product.get("active")));
-        predicates.add(builder.isTrue(product.get("subcategory").get("active")));
-        predicates.add(builder.isTrue(product.get("subcategory").get("category").get("active")));
+        switch (criteria.status()) {
+            case ACTIVE -> {
+                predicates.add(builder.isTrue(product.get("active")));
+                predicates.add(builder.isTrue(product.get("subcategory").get("active")));
+                predicates.add(builder.isTrue(product.get("subcategory").get("category").get("active")));
+            }
+            case INACTIVE -> predicates.add(builder.isFalse(product.get("active")));
+            case ALL -> {
+                // Sem filtro de ativo.
+            }
+        }
 
         if (criteria.name() != null && !criteria.name().isBlank()) {
             String pattern = "%" + escapeLike(criteria.name().toLowerCase(Locale.ROOT)) + "%";
