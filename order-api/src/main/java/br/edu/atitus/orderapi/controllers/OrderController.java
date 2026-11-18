@@ -2,6 +2,7 @@ package br.edu.atitus.orderapi.controllers;
 
 import br.edu.atitus.orderapi.dtos.OrderDTO;
 import br.edu.atitus.orderapi.dtos.AnalyticsOrderResponse;
+import br.edu.atitus.orderapi.dtos.PaymentInfoResponse;
 import br.edu.atitus.orderapi.entities.OrderEntity;
 import br.edu.atitus.orderapi.services.OrderService;
 import org.springframework.data.domain.Page;
@@ -69,6 +70,11 @@ public class OrderController {
         Page<AnalyticsOrderResponse> response = orderService.findOrdersUpdatedAfter(updatedAfter, pageable)
                 .map(AnalyticsOrderResponse::fromEntity);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/internal/{orderId}/payment-info")
+    public ResponseEntity<PaymentInfoResponse> findPaymentInfo(@PathVariable Long orderId) {
+        return ResponseEntity.ok(PaymentInfoResponse.fromEntity(orderService.findOrderForAdmin(orderId)));
     }
 
     @PostMapping("/{orderId}/confirm")

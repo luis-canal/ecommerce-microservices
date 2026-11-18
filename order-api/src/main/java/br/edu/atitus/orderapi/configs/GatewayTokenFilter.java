@@ -44,7 +44,8 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
         String suppliedToken = request.getHeader("X-Gateway-Token");
         String suppliedServiceToken = request.getHeader("X-Service-Token");
         if ((isInternalTransitionPath(request.getRequestURI())
-                || isAnalyticsPath(request.getRequestURI()))
+                || isAnalyticsPath(request.getRequestURI())
+                || isPaymentInfoPath(request.getRequestURI()))
                 && isValidServiceToken(suppliedServiceToken)) {
             filterChain.doFilter(request, response);
             return;
@@ -69,6 +70,10 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
 
     private boolean isAnalyticsPath(String path) {
         return path.equals("/ws/orders/internal/analytics");
+    }
+
+    private boolean isPaymentInfoPath(String path) {
+        return path.matches("/ws/orders/internal/[0-9]+/payment-info");
     }
 
     private boolean isValidServiceToken(String suppliedToken) {
