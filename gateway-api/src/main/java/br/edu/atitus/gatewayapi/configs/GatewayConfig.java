@@ -15,6 +15,9 @@ public class GatewayConfig {
                 .route("product-api", route -> route
                         .path("/products/**")
                         .uri("lb://product-api"))
+                .route("category-api", route -> route
+                        .path("/categories/**")
+                        .uri("lb://product-api"))
                 .route("currency-api", route -> route
                         .path("/currencies/**")
                         .uri("lb://currency-api"))
@@ -24,6 +27,12 @@ public class GatewayConfig {
                 // Rotas Protegidas (/ws/**)
                 .route("product-api-ws", route -> route
                         .path("/ws/products/**")
+                        .uri("lb://product-api"))
+                .route("category-api-ws", route -> route
+                        .path("/ws/categories/**")
+                        .uri("lb://product-api"))
+                .route("subcategory-api-ws", route -> route
+                        .path("/ws/subcategories/**")
                         .uri("lb://product-api"))
                 .route("currency-api-ws", route -> route
                         .path("/ws/currencies/**")
