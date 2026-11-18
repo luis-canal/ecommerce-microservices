@@ -176,6 +176,8 @@ Sem corpo.
 
 Lista produtos ativos em páginas. Também exclui produtos cuja subcategoria ou categoria esteja inativa.
 
+Este endpoint não aceita filtro de status: um parâmetro `status` enviado aqui é ignorado e o resultado continua contendo somente produtos ativos. Para listar produtos inativos, use [`GET /ws/products`](#listar-produtos-administrador-incluindo-inativos) (administrador).
+
 **Autenticação:** Não.
 
 **Headers:** `Accept: application/json` recomendado.
@@ -257,6 +259,8 @@ Retorna uma página Spring Data. `price` é o valor original e `convertedPrice` 
 **`GET /products/{id}`**
 
 Retorna um produto ativo, desde que sua subcategoria e categoria também estejam ativas.
+
+Para consultar um produto inativo, use [`GET /ws/products/{id}`](#buscar-produto-por-id-administrador-incluindo-inativo) (administrador).
 
 **Autenticação:** Não.
 
@@ -486,6 +490,117 @@ Retorna a entidade do produto com `active` atualizado. Exemplo: o mesmo objeto d
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `404 Not Found` | Produto não encontrado. | `"Produto não encontrado"` |
 | `409 Conflict` | Tentativa de reativar com categoria ou subcategoria inativa. | `"Não é possível reativar um produto com categoria ou subcategoria inativa"` |
+| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+
+### Listar produtos (administrador), incluindo inativos
+
+**`GET /ws/products`**
+
+Mesma listagem paginada de [`GET /products`](#listar-pesquisar-filtrar-e-ordenar-produtos), com os mesmos filtros, paginação, ordenação e formato de resposta, mais o filtro `status`. Sem `status`, o resultado é idêntico ao do catálogo público.
+
+**Autenticação:** Sim — Bearer Token de administrador.
+
+**Headers:** `Authorization: Bearer <jwt>` obrigatório; `Accept: application/json` recomendado.
+
+**Query parameters:** todos os de `GET /products` (`name`, `categoryId`, `subcategoryId`, `minPrice`, `maxPrice`, `targetCurrency`, `page`, `size`, `sort`), mais:
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `status` | string | Não | `ACTIVE`, `INACTIVE` ou `ALL`. Padrão: `ACTIVE`. |
+
+Semântica do `status`:
+
+| Valor | Produtos retornados |
+|---|---|
+| `ACTIVE` (padrão) | Produto, subcategoria e categoria ativos — exatamente o mesmo critério de `GET /products`. |
+| `INACTIVE` | Produtos com `active = false`, independentemente do status da subcategoria/categoria. |
+| `ALL` | Todos os produtos, sem filtro de ativo. |
+
+Um produto com `active = true` cuja categoria ou subcategoria esteja inativa **não** aparece em `ACTIVE` nem em `INACTIVE`; ele aparece **somente** em `ALL`. O campo `active` da resposta reflete apenas o status do próprio produto (o mesmo alterado por `PATCH /ws/products/{id}/status`); use `categoryId`/`subcategoryId` para conferir o status da classificação.
+
+O `status` combina com todos os outros filtros, e `totalElements`/`totalPages` refletem o filtro aplicado.
+
+```http
+GET /ws/products?status=INACTIVE&name=cuia&categoryId=2&sort=name,asc&page=0&size=10
+Authorization: Bearer <jwt>
+```
+
+**Sucesso — `200 OK`**
+
+Mesmo formato de página de `GET /products`. Exemplo de item de produto inativo:
+
+```json
+{
+  "content": [
+    {
+      "id": 18,
+      "name": "Cuia descontinuada",
+      "brand": "Marca Gaúcha",
+      "model": "CU-02",
+      "description": "Cuia de porongo",
+      "currency": "BRL",
+      "price": 80.0,
+      "image": "https://example.com/cuia-2.jpg",
+      "images": [],
+      "subcategoryId": 7,
+      "subcategoryName": "Porongo",
+      "categoryId": 2,
+      "categoryName": "Cuias",
+      "productType": "SINGLE_UNIT",
+      "active": false,
+      "environment": "Product API running in port 8080",
+      "promotionMessage": "Nenhuma Promoção Ativa",
+      "targetCurrency": "BRL",
+      "convertedPrice": 80.0
+    }
+  ],
+  "totalElements": 1,
+  "totalPages": 1,
+  "number": 0,
+  "size": 10
+}
+```
+
+**Erros comuns**
+
+| Status | Quando ocorre | Exemplo de corpo atual |
+|---|---|---|
+| `400 Bad Request` | `status` fora de `ACTIVE`/`INACTIVE`/`ALL`, outro parâmetro com tipo inválido, faixa de preço inválida ou ordenação não suportada. | `"Parâmetro inválido: status"` (texto simples) |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa (qualquer valor de `status`). | `"Usuário sem permissão para esta operação"` |
+| `503 Service Unavailable` | Conversão para BRL indisponível para filtro/ordenação por preço. | `"Não foi possível converter os preços para BRL"` |
+| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+
+### Buscar produto por ID (administrador), incluindo inativo
+
+**`GET /ws/products/{id}`**
+
+Retorna o produto mesmo que ele, sua subcategoria ou sua categoria estejam inativos. O formato da resposta é o mesmo de [`GET /products/{id}`](#buscar-produto-por-id); `active` indica o status do produto.
+
+**Autenticação:** Sim — Bearer Token de administrador.
+
+**Headers:** `Authorization: Bearer <jwt>` obrigatório; `Accept: application/json` recomendado.
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---:|---|
+| `id` | integer (`Long`) | Sim | ID do produto no path. |
+| `targetCurrency` | string | Não | Moeda de `convertedPrice`. Padrão: `BRL`. |
+
+```http
+GET /ws/products/18?targetCurrency=BRL
+Authorization: Bearer <jwt>
+```
+
+**Sucesso — `200 OK`**: o objeto de produto, com `"active": false` quando o produto está desativado.
+
+**Erros comuns**
+
+| Status | Quando ocorre | Exemplo de corpo atual |
+|---|---|---|
+| `400 Bad Request` | ID não numérico. | `"Parâmetro inválido: id"` (texto simples) |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
+| `404 Not Found` | Produto não existe. | `"Produto não encontrado"` (texto simples) |
 | `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
 
 ### Imagens do produto
