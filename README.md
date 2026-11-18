@@ -2,7 +2,7 @@
 
 Projeto acadêmico de um **e-commerce de artigos gaúchos**, desenvolvido com arquitetura de microsserviços utilizando Java e Spring Boot.
 
-A aplicação é composta por oito microsserviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas, carrinho, pedidos e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
+A aplicação é composta por nove microsserviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas, carrinho, pedidos, pagamentos e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
 
 O objetivo é construir uma base de e-commerce distribuída, explorando conceitos de desenvolvimento backend, APIs REST, autenticação, persistência de dados e comunicação entre microsserviços.
 
@@ -10,7 +10,7 @@ Consulte [API.md](./API.md) para a documentação detalhada dos fluxos de autent
 
 ## Arquitetura
 
-O projeto é organizado em oito microsserviços:
+O projeto é organizado em nove microsserviços:
 
 | Serviço | Responsabilidade |
 |---|---|
@@ -22,6 +22,7 @@ O projeto é organizado em oito microsserviços:
 | `cart-api` | Carrinho persistente por cliente, quantidades desejadas e estimativa de subtotal. |
 | `order-api` | Checkout, valores definitivos, frete, pedidos e coordenação da reserva atômica de estoque. |
 | `analytics-api` | Coleta periódica de pedidos e estoque, agregações e indicadores para o painel administrativo. |
+| `payment-api` | Pagamento dos pedidos com Stripe Checkout (modo teste), estados do pagamento e webhooks do Stripe. |
 
 ### Fluxo de comunicação
 
@@ -40,7 +41,16 @@ CLIENTE -> GATEWAY API -> CART API -> PRODUCT API -> CURRENCY API -> BANCO CENTR
 ADMIN -> GATEWAY API -> ANALYTICS API -(coleta periódica)-> ORDER API
                              |
                              +--------(coleta periódica)-> INVENTORY API
+
+CLIENTE -> GATEWAY API -> PAYMENT API -> ORDER API (payment-info, confirm, cancel)
+                              |
+                              v
+                    STRIPE (sessão de Checkout, estorno)
+                              |
+                              +--(webhook)--> GATEWAY API -> PAYMENT API
 ```
+
+O `payment-api` consulta o pedido no `order-api` antes de criar a sessão de pagamento no Stripe e, ao receber o webhook do Stripe, confirma ou cancela o pedido pelas rotas internas. O `order-api` não conhece o Stripe, e nenhum outro serviço depende do `payment-api`.
 
 O `analytics-api` não participa do fluxo síncrono de compra. Em intervalos configuráveis (padrão de 5 minutos), ele consulta os endpoints internos de analytics do `order-api` e do `inventory-api`, grava os dados em seu próprio banco e responde às consultas do painel administrativo a partir dessa cópia. Se o `analytics-api` estiver fora do ar, checkout e pedidos continuam funcionando; se uma origem estiver indisponível, a coleta é repetida no ciclo seguinte.
 
@@ -250,6 +260,28 @@ Responsável pelos indicadores do painel administrativo. Coleta periodicamente o
 
 O serviço e seu banco dedicado utilizam, respectivamente, as portas 8700 e 5432 na rede Docker. O intervalo da coleta é definido no Consul pela chave `config/analytics-api/analytics.collection.interval-ms` (padrão `300000`, 5 minutos). Os endpoints estão detalhados em [API.md](./API.md).
 
+### 9. Pagamentos — `payment-api`
+
+Responsável pelo pagamento dos pedidos com o **Stripe Checkout em modo de teste**. Inicia o pagamento, acompanha os estados e comunica o resultado ao `order-api`, mantendo a integração com o provedor isolada do domínio de pedidos.
+
+- O valor e a moeda vêm sempre do `order-api`, por uma consulta interna autenticada; o frontend não envia preço.
+- O cliente é redirecionado para a página hospedada do Stripe; a loja nunca recebe dados de cartão.
+- O resultado chega pelo webhook assinado do Stripe. O retorno do navegador para a página de sucesso não aprova o pagamento: o frontend apenas consulta o status.
+- Pagamento aprovado confirma o pedido; pagamento recusado ou sessão expirada cancela o pedido e libera a reserva de estoque.
+- Pagamento aprovado depois que a reserva do pedido expirou, ou depois que o pagamento já foi encerrado (`FAILED`, `EXPIRED` ou `CANCELLED`), é estornado automaticamente (`REFUNDED`). Limitação conhecida: não há job de reconciliação; se o estorno ou a confirmação falharem de forma permanente, o webhook responde `500`, o Stripe reenvia o evento por cerca de 3 dias, o pagamento fica `PENDING` e o caso exige intervenção manual.
+- Idempotência: no máximo um pagamento aberto por pedido, chaves de idempotência nas chamadas ao Stripe e deduplicação dos eventos do webhook.
+- O SDK do Stripe é usado apenas atrás da interface `PaymentGateway`, o que permite trocar o provedor sem alterar o `order-api`.
+
+**Endpoints:**
+
+| Método | Endpoint | Descrição |
+|---|---|---|
+| POST | `/ws/payments/orders/{orderId}/checkout-session` | Inicia (ou reaproveita) o pagamento do pedido e devolve a URL do Checkout |
+| GET | `/ws/payments/orders/{orderId}` | Status do pagamento mais recente do pedido |
+| POST | `/payments/webhook` | Notificações do Stripe (pública, validada pela assinatura) |
+
+Estados do pagamento: `CREATED`, `PENDING`, `APPROVED`, `FAILED`, `EXPIRED`, `CANCELLED` e `REFUNDED`. O serviço e seu banco dedicado (`payment_db`) utilizam, respectivamente, as portas 8800 e 5432 na rede Docker. O serviço só sobe com uma chave de teste do Stripe (`sk_test_` ou `rk_test_`) e faz parte do profile `payment` do Compose. Os endpoints, as transições e o tratamento de falhas estão detalhados em [API.md](./API.md#pagamentos).
+
 ## Segurança
 
 A autenticação utiliza JWT (JSON Web Token).
@@ -267,6 +299,8 @@ O cadastro de produtos é restrito a usuários administradores. Usuários autent
 O `inventory-api` e o `cart-api` validam credenciais privadas do Gateway. As consultas internas do `cart-api` ao catálogo e ao estoque usam credencial serviço-a-serviço. Em produção, configure Consul com ACL/TLS e um gerenciador de segredos.
 
 As rotas `/ws/admin/analytics/**` exigem JWT de administrador: sem token o Gateway responde `401`, e usuários sem perfil de administrador recebem `403`. O `analytics-api` aceita somente requisições encaminhadas pelo Gateway com sua credencial privada; chamadas diretas ao serviço são rejeitadas. Para coletar dados, ele chama o `order-api` e o `inventory-api` com a credencial serviço-a-serviço.
+
+As rotas `/ws/payments/**` exigem JWT de cliente e chegam ao `payment-api` com sua credencial privada do Gateway; chamadas diretas são rejeitadas. A única rota pública do serviço é `POST /payments/webhook`, autenticada pela assinatura `Stripe-Signature` do Stripe. O `payment-api` chama as rotas internas do `order-api` (`payment-info`, `confirm` e `cancel`) com a credencial serviço-a-serviço; pelo Gateway, um cliente recebe `401` nessas rotas. A chave secreta do Stripe fica apenas em variável de ambiente do servidor, precisa ser de teste e nunca é registrada em log, assim como o corpo dos webhooks.
 
 ## Banco de dados e persistência
 
@@ -289,8 +323,11 @@ Os bancos utilizados incluem:
 - `db_order`
 - `db_cart`
 - `analytics_db`
+- `payment_db`
 
 O `analytics_db` guarda a cópia dos pedidos e itens coletados, as agregações diárias de vendas, os snapshots e movimentações de estoque, o progresso de cada coleta e o histórico de execuções.
+
+O `payment_db` guarda os pagamentos (pedido, cliente, valor, moeda, status, sessão de Checkout e transação do Stripe, datas de criação, atualização e confirmação) e os identificadores dos eventos do Stripe já processados. Um índice único parcial garante no máximo um pagamento aberto (`CREATED` ou `PENDING`) por pedido.
 
 As configurações de conexão devem corresponder às propriedades de cada serviço.
 
@@ -303,6 +340,8 @@ O `load-config.sh`, executado pelo Docker Compose, cadastra no Consul as proprie
 As configurações incluem propriedades de execução, conexão com PostgreSQL e parâmetros de integração com serviços externos.
 
 Para o `analytics-api`, o script cadastra a porta, a conexão com o `analytics_db`, as URLs do `order-api` e do `inventory-api`, as credenciais internas e o intervalo da coleta periódica (`analytics.collection.interval-ms`).
+
+Para o `payment-api`, o script cadastra a porta, a conexão com o `payment_db`, a URL do `order-api`, as credenciais internas e a reserva mínima para abrir um checkout (`payment.min-reservation-seconds`, padrão `120`). As credenciais do Stripe não passam pelo Consul: vêm de variáveis de ambiente (`docker/.env.payment`).
 
 O Consul em modo de desenvolvimento não oferece persistência dos dados de configuração após o encerramento da instância.
 
@@ -337,6 +376,9 @@ docker compose --parallel 1 -f docker/docker-compose.yml --profile analytics up 
 
 # Prometheus, Loki, Alloy, Grafana e Zipkin
 docker compose --parallel 1 -f docker/docker-compose.yml --profile observability up --build -d
+
+# Pagamentos (Stripe em modo teste) e seu banco; exige as variáveis do Stripe em docker/.env.payment
+docker compose --parallel 1 -f docker/docker-compose.yml --profile payment up --build -d
 ```
 
 Para ativar mais de um conjunto opcional, repita `--profile`, por exemplo `--profile cart --profile analytics`. O BuildKit compartilha o cache de dependências Maven entre as APIs; a primeira compilação ainda precisa baixar as dependências. Use `docker compose -f docker/docker-compose.yml down` para parar os serviços sem apagar dados. Evite `down -v` se quiser conservar volumes.
@@ -362,6 +404,70 @@ cp docker/.env.example docker/.env
 Sem essas variáveis o serviço sobe normalmente; apenas o upload de imagens falha. Nunca versione chaves reais.
 
 O `analytics-api` acrescenta mais uma credencial de encaminhamento do Gateway, gerada e persistida da mesma forma que as demais.
+
+O `payment-api` também acrescenta uma credencial de encaminhamento do Gateway (`GATEWAY_PAYMENT_DOWNSTREAM_TOKEN`), gerada e persistida da mesma forma, e reutiliza a credencial serviço-a-serviço para chamar o `order-api`.
+
+### Pagamentos com Stripe (modo teste)
+
+O `payment-api` lê as credenciais do Stripe apenas de variáveis de ambiente. No Compose, elas vêm de `docker/.env.payment`, um arquivo separado, não versionado e lido **somente** pelo `payment-api` (os demais serviços não recebem essas variáveis). Copie o modelo e preencha:
+
+```bash
+cp docker/.env.payment.example docker/.env.payment
+```
+
+Use somente chaves de **teste**: o serviço não sobe se `STRIPE_SECRET_KEY` não começar com `sk_test_` ou `rk_test_`. Nunca versione chaves.
+
+| Variável | Descrição |
+|---|---|
+| `STRIPE_SECRET_KEY` | Chave secreta de teste (`sk_test_...` ou chave restrita `rk_test_...`), em *Developers → API keys* no painel do Stripe |
+| `STRIPE_WEBHOOK_SECRET` | Segredo de assinatura do webhook (`whsec_...`), exibido pelo `stripe listen` ou pelo endpoint cadastrado no painel |
+| `PAYMENT_SUCCESS_URL` | Página do frontend após o pagamento; deve conter `{CHECKOUT_SESSION_ID}`, por exemplo `http://localhost:5173/pagamento/sucesso?session_id={CHECKOUT_SESSION_ID}` |
+| `PAYMENT_CANCEL_URL` | Página do frontend quando o cliente desiste do pagamento |
+
+**Teste local com a Stripe CLI:**
+
+1. Instale a [Stripe CLI](https://docs.stripe.com/stripe-cli) e autentique-se na conta em modo de teste:
+
+   ```bash
+   stripe login
+   ```
+
+2. Encaminhe os webhooks para o Gateway e copie o segredo `whsec_...` exibido para `STRIPE_WEBHOOK_SECRET` em `docker/.env.payment` (mantenha o comando rodando):
+
+   ```bash
+   stripe listen --forward-to localhost:8080/payments/webhook
+   ```
+
+3. Preencha `STRIPE_SECRET_KEY`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` em `docker/.env.payment` e suba os serviços com o profile `payment` (na primeira vez, inclua `--build`):
+
+   ```bash
+   cd docker
+   docker compose --profile payment up -d
+   ```
+
+4. Autentique-se como cliente, crie um pedido em `POST /ws/orders` e inicie o pagamento:
+
+   ```http
+   POST /ws/payments/orders/{orderId}/checkout-session
+   Authorization: Bearer SEU_TOKEN_JWT
+   ```
+
+5. Abra o `checkoutUrl` da resposta e pague com um cartão de teste, usando qualquer data de validade futura, qualquer CVC e qualquer CEP.
+
+6. Acompanhe o `stripe listen`: o evento `checkout.session.completed` deve ser respondido com `200`. Em seguida, `GET /ws/payments/orders/{orderId}` retorna `APPROVED`, e `GET /ws/orders/{orderId}` retorna `CONFIRMED`.
+
+| Cartão de teste | Resultado |
+|---|---|
+| `4242 4242 4242 4242` | Pagamento aprovado |
+| `4000 0025 0000 3155` | Exige autenticação 3D Secure; aprovado após autenticar |
+| `4000 0000 0000 0002` | Recusado (o Checkout mostra o erro e o cliente pode tentar outro cartão) |
+| `4000 0000 0000 9995` | Recusado por saldo insuficiente |
+
+Outros cenários:
+
+- **Sessão expirada:** expire a sessão com `stripe checkout sessions expire cs_test_...`. O pagamento passa a `EXPIRED` e o pedido é cancelado, liberando o estoque.
+- **Pagamento tardio:** espere a reserva do pedido expirar (10 minutos) antes de pagar com a sessão ainda aberta. O pedido não é confirmado e o pagamento é estornado (`REFUNDED`); o estorno aparece em *Payments* no painel do Stripe.
+- **Reenvio de evento:** `stripe events resend evt_...` reenvia um evento já processado; ele é respondido com `200` sem efeito.
 
 O Consul configurado com `-dev` é para desenvolvimento local; ele não persiste suas chaves após a remoção/recriação do container. O script repopula o KV ao iniciar o Compose, usando as credenciais persistidas. Em produção, use Consul com ACL/TLS e um gerenciador de segredos apropriado em vez do modo de desenvolvimento.
 
@@ -446,6 +552,13 @@ cd order-api
 
 ```bash
 cd analytics-api
+./mvnw spring-boot:run
+```
+
+**Payment API** (exige as variáveis `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` no ambiente)
+
+```bash
+cd payment-api
 ./mvnw spring-boot:run
 ```
 
@@ -536,6 +649,8 @@ ecommerce-microservices/
 │   └── Serviço de pedidos e checkout
 ├── analytics-api/
 │   └── Serviço de coleta e indicadores do painel administrativo
+├── payment-api/
+│   └── Serviço de pagamentos com Stripe (modo teste)
 │
 ├── gateway-api/
 │   └── Gateway e roteamento das requisições
