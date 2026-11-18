@@ -24,6 +24,10 @@ public class GatewayConfig {
                 .route("auth-api", route -> route
                         .path("/auth/**")
                         .uri("lb://auth-api"))
+                // Webhook do Stripe: público, autenticado pela assinatura no payment-api.
+                .route("payment-api-webhook", route -> route
+                        .path("/payments/webhook")
+                        .uri("lb://payment-api"))
                 // Rotas Protegidas (/ws/**)
                 .route("product-api-ws", route -> route
                         .path("/ws/products/**")
@@ -55,6 +59,9 @@ public class GatewayConfig {
                 .route("cart-api-ws", route -> route
                         .path("/ws/cart", "/ws/cart/**")
                         .uri("lb://cart-api"))
+                .route("payment-api-ws", route -> route
+                        .path("/ws/payments", "/ws/payments/**")
+                        .uri("lb://payment-api"))
                 .build();
     }
 }

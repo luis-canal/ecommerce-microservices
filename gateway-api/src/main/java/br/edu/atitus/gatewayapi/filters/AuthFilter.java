@@ -36,6 +36,7 @@ public class AuthFilter implements GlobalFilter, Ordered {
     private final String orderDownstreamToken;
     private final String cartDownstreamToken;
     private final String analyticsDownstreamToken;
+    private final String paymentDownstreamToken;
 
     public AuthFilter(
             TokenRevocationClient tokenRevocationClient,
@@ -43,7 +44,8 @@ public class AuthFilter implements GlobalFilter, Ordered {
             @Value("${gateway.security.inventory-downstream-token:}") String inventoryDownstreamToken,
             @Value("${gateway.security.order-downstream-token:}") String orderDownstreamToken,
             @Value("${gateway.security.cart-downstream-token:}") String cartDownstreamToken,
-            @Value("${gateway.security.analytics-downstream-token:}") String analyticsDownstreamToken
+            @Value("${gateway.security.analytics-downstream-token:}") String analyticsDownstreamToken,
+            @Value("${gateway.security.payment-downstream-token:}") String paymentDownstreamToken
     ) {
         this.tokenRevocationClient = tokenRevocationClient;
         this.serviceToken = serviceToken;
@@ -51,6 +53,7 @@ public class AuthFilter implements GlobalFilter, Ordered {
         this.orderDownstreamToken = orderDownstreamToken;
         this.cartDownstreamToken = cartDownstreamToken;
         this.analyticsDownstreamToken = analyticsDownstreamToken;
+        this.paymentDownstreamToken = paymentDownstreamToken;
     }
 
     @Override
@@ -135,6 +138,9 @@ public class AuthFilter implements GlobalFilter, Ordered {
         if (isAnalyticsPath(path)) {
             return forwardWithDownstreamToken(exchange, chain, request, analyticsDownstreamToken);
         }
+        if (isPaymentPath(path)) {
+            return forwardWithDownstreamToken(exchange, chain, request, paymentDownstreamToken);
+        }
         return chain.filter(exchange.mutate().request(request).build());
     }
 
@@ -164,6 +170,10 @@ public class AuthFilter implements GlobalFilter, Ordered {
 
     private boolean isAnalyticsPath(String path) {
         return path.equals("/ws/admin/analytics") || path.startsWith("/ws/admin/analytics/");
+    }
+
+    private boolean isPaymentPath(String path) {
+        return path.equals("/ws/payments") || path.startsWith("/ws/payments/");
     }
 
     private boolean isCartPath(String path) {

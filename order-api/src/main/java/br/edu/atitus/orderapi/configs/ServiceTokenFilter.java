@@ -26,7 +26,8 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return !path.matches("/ws/orders/[0-9]+/(confirm|cancel)")
-                && !path.equals("/ws/orders/internal/analytics");
+                && !path.equals("/ws/orders/internal/analytics")
+                && !path.matches("/ws/orders/internal/[0-9]+/payment-info");
     }
 
     @Override

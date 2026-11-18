@@ -1108,11 +1108,11 @@ As operações administrativas exigem JWT de usuário com perfil Admin. O Gatewa
 
 A listagem aceita `status`, `customerId`, `orderId`, `createdFrom`, `createdTo`, `confirmedFrom` e `confirmedTo`, além dos parâmetros de paginação e ordenação (`page`, `size`, `sort`). O tamanho padrão é 20 e o máximo é 100. As datas devem ser timestamps ISO-8601.
 
-O detalhe administrativo inclui cliente, itens/snapshots, endereço, valores, estado e dados da reserva. `paymentDataAvailable` é `false`: não existe integração nem registro de pagamento neste repositório, e a API não inventa informações de pagamento. Um pedido `PENDING_PAYMENT` pode ser cancelado se a reserva for liberada. Um pedido confirmado não pode ser cancelado (`409 Conflict`) até existir uma política de estorno.
+O detalhe administrativo inclui cliente, itens/snapshots, endereço, valores, estado e dados da reserva. `paymentDataAvailable` é `false`: o Order API não guarda dados de pagamento (eles ficam no Payment API, ver [Pagamentos](#pagamentos)), e a API não inventa informações de pagamento. Um pedido `PENDING_PAYMENT` pode ser cancelado se a reserva for liberada. Um pedido confirmado não pode ser cancelado (`409 Conflict`) até existir uma política de estorno.
 
-### Transições internas e pagamento futuro
+### Transições internas e pagamento
 
-Um serviço confiável deve chamar diretamente o Order API pela rede interna com `X-Service-Token`. O endpoint de confirmação só deve ser chamado pelo fluxo responsável depois que o pagamento tiver sido aprovado; não existe Payment API neste repositório. O segredo não deve ser enviado ao aplicativo cliente.
+Um serviço confiável deve chamar diretamente o Order API pela rede interna com `X-Service-Token`. O endpoint de confirmação só deve ser chamado pelo fluxo responsável depois que o pagamento tiver sido aprovado: esse fluxo é o Payment API, que chama `confirm` ao receber do Stripe a notificação de pagamento aprovado e `cancel` quando o pagamento é recusado ou a sessão expira (ver [Pagamentos](#pagamentos)). O segredo não deve ser enviado ao aplicativo cliente; pelo Gateway, essas rotas respondem `401 Unauthorized`.
 
 | Método e rota interna | Efeito |
 |---|---|
@@ -1128,6 +1128,25 @@ Estados de pedido utilizados: `RESERVATION_PENDING` durante a coordenação inic
 **`GET /ws/orders/internal/analytics?updatedAfter={timestamp}`**
 
 Disponível somente na rede interna e protegido por `X-Service-Token`; não deve ser exposto como rota de cliente. A resposta é paginada (`page`, `size`, `sort`; padrão de 100 registros, máximo de 100) e inclui os dados históricos persistidos do pedido, inclusive `customerId`. `updatedAfter` é obrigatório e inclusivo, retornando pedidos atualizados naquele instante ou depois dele, permitindo capturar mudanças de status além da criação. O consumidor deve avançar a paginação e deduplicar registros na fronteira do instante de atualização.
+
+### Consulta interna para pagamentos
+
+**`GET /ws/orders/internal/{orderId}/payment-info`**
+
+Contrato mínimo usado pelo Payment API para validar o pedido antes de iniciar um pagamento. Disponível somente na rede interna e protegido por `X-Service-Token`; pelo Gateway, um cliente recebe `401 Unauthorized`. Pedido inexistente retorna `404 Not Found`.
+
+```json
+{
+  "id": 42,
+  "customerId": 7,
+  "status": "PENDING_PAYMENT",
+  "totalAmount": 149.90,
+  "currency": "BRL",
+  "reservationExpiresAt": "2026-11-18T12:10:00Z"
+}
+```
+
+A resposta contém apenas esses campos: dono do pedido, estado, valor total (com frete), moeda e validade da reserva de estoque.
 
 ## Carrinho
 
@@ -1572,3 +1591,145 @@ Executa a coleta imediatamente, sem aguardar o próximo ciclo, por exemplo depoi
 | `401 Unauthorized` | Requisição sem JWT válido ou que não passou pelo Gateway. |
 | `403 Forbidden` | Usuário autenticado sem perfil de administrador. |
 | `500 Internal Server Error` | O Analytics API está indisponível. Checkout e pedidos não são afetados. |
+
+## Pagamentos
+
+O `payment-api` integra a loja ao **Stripe Checkout em modo de teste**. Ele inicia o pagamento de um pedido, acompanha o estado do pagamento e comunica o resultado ao `order-api`. O Order API não conhece o provedor: a integração fica isolada no Payment API, atrás de uma interface que permite trocar o provedor.
+
+Regras gerais:
+
+- O valor e a moeda vêm **sempre** do Order API (`totalAmount`, com frete). O frontend não envia preço nem total.
+- O cliente paga na página hospedada do Stripe (`checkoutUrl`); a loja nunca recebe dados de cartão.
+- O pagamento só é aprovado pelo **webhook** assinado do Stripe. O retorno do navegador para a página de sucesso **não** aprova nada: o frontend apenas consulta o status.
+- A chave secreta do Stripe fica somente no servidor, em variável de ambiente, e precisa ser de teste (`sk_test_` ou `rk_test_`).
+
+### Fluxo recomendado
+
+1. Crie o pedido em `POST /ws/orders`. Ele fica `PENDING_PAYMENT` com reserva de estoque de 10 minutos.
+2. Chame `POST /ws/payments/orders/{orderId}/checkout-session` e redirecione o cliente para o `checkoutUrl` recebido.
+3. Ao terminar, o Stripe redireciona o cliente para a página de sucesso (com `session_id`) ou de cancelamento do frontend.
+4. Em paralelo, o Stripe notifica o webhook. O Payment API confirma o pedido no Order API e marca o pagamento como `APPROVED`.
+5. Na página de sucesso, consulte `GET /ws/payments/orders/{orderId}` até o status deixar de ser `PENDING`.
+
+### Iniciar pagamento
+
+**`POST /ws/payments/orders/{orderId}/checkout-session`**
+
+Exige JWT de cliente. Não tem corpo.
+
+```http
+POST /ws/payments/orders/42/checkout-session
+Authorization: Bearer <token>
+```
+
+**Resposta `200 OK`:**
+
+```json
+{
+  "paymentId": 15,
+  "orderId": 42,
+  "status": "PENDING",
+  "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_test_..."
+}
+```
+
+Comportamento:
+
+- Valida no Order API que o pedido existe, pertence ao cliente, está `PENDING_PAYMENT` e tem pelo menos `payment.min-reservation-seconds` (padrão 120 segundos) de reserva restante.
+- Cria uma sessão do Stripe Checkout (somente cartão, um item "Pedido #{orderId}" com o total do pedido) válida por cerca de 30 minutos, o mínimo aceito pelo Stripe.
+- Se já existe um pagamento aberto para o pedido, devolve o mesmo `checkoutUrl`, sem criar outra sessão. Se esse pagamento aberto não serve mais (pedido não mais pendente, ou reserva com menos de `payment.min-reservation-seconds` restantes), a sessão é expirada no Stripe, o pagamento passa a `CANCELLED` e as regras acima são reavaliadas; com a reserva no fim, a resposta é `409 Conflict`.
+- Repetir a chamada é seguro: há no máximo um pagamento aberto por pedido, inclusive com requisições simultâneas.
+
+| Status | Quando ocorre |
+|---|---|
+| `200 OK` | Sessão criada, ou sessão aberta existente reaproveitada. |
+| `401 Unauthorized` | Sem JWT válido. |
+| `403 Forbidden` | Usuário autenticado que não é cliente. |
+| `404 Not Found` | Pedido inexistente ou de outro cliente. |
+| `409 Conflict` | Pedido não está `PENDING_PAYMENT`, a reserva expira em menos de 2 minutos, outra requisição está criando o pagamento neste instante, ou o checkout anterior já foi concluído e está em processamento. |
+| `502 Bad Gateway` | Stripe ou Order API indisponível. Se a falha foi do Stripe, a tentativa é registrada como `FAILED` e uma nova chamada cria outra. |
+
+### Consultar pagamento
+
+**`GET /ws/payments/orders/{orderId}`**
+
+Exige JWT de cliente. Retorna o pagamento mais recente do pedido do cliente. O frontend usa esta rota para acompanhar o resultado; ela nunca altera o status.
+
+```json
+{
+  "paymentId": 15,
+  "orderId": 42,
+  "status": "APPROVED",
+  "amount": 149.90,
+  "currency": "BRL",
+  "checkoutUrl": null,
+  "createdAt": "2026-11-18T12:00:05Z",
+  "updatedAt": "2026-11-18T12:01:40Z",
+  "confirmedAt": "2026-11-18T12:01:40Z"
+}
+```
+
+`checkoutUrl` só vem preenchido enquanto o pagamento está `PENDING`. Sem pagamento para o pedido, ou pedido de outro cliente: `404 Not Found`.
+
+### Estados e transições
+
+Os estados do pagamento são próprios e separados dos estados do pedido. As transições são controladas pelo backend a partir dos eventos validados do Stripe; estados finais não mudam, e eventos atrasados ou duplicados são ignorados. A única exceção é a aprovação que chega para um pagamento já `FAILED`, `EXPIRED` ou `CANCELLED`: o valor foi capturado e não será honrado, então é estornado e o pagamento passa a `REFUNDED`.
+
+| Estado | Significado |
+|---|---|
+| `CREATED` | Tentativa registrada; a sessão no Stripe está sendo criada. |
+| `PENDING` | Sessão criada; aguardando o cliente ou a confirmação do Stripe. |
+| `APPROVED` | Pago e pedido confirmado. Final. |
+| `FAILED` | Falha ao criar a sessão ou pagamento recusado. Final (salvo estorno). |
+| `EXPIRED` | Sessão expirou sem pagamento. Final (salvo estorno). |
+| `CANCELLED` | Substituído por um novo checkout porque o anterior não servia mais. Final (salvo estorno). |
+| `REFUNDED` | Pago depois que o pedido deixou de aceitar pagamento; estornado. Final. |
+
+| De | Para |
+|---|---|
+| `CREATED` | `PENDING`, `FAILED`, `CANCELLED` |
+| `PENDING` | `APPROVED`, `FAILED`, `EXPIRED`, `CANCELLED`, `REFUNDED` |
+| `FAILED`, `EXPIRED`, `CANCELLED` | `REFUNDED` (somente ao receber aprovação depois do encerramento) |
+
+### Webhook do Stripe
+
+**`POST /payments/webhook`**
+
+Rota pública (sem JWT), chamada somente pelo Stripe e autenticada pela assinatura do cabeçalho `Stripe-Signature`. O Gateway encaminha o corpo e o cabeçalho sem alterações. Apenas esta rota fora de `/ws/` é exposta para o Payment API.
+
+| Evento | Efeito |
+|---|---|
+| `checkout.session.completed` | Se `payment_status` é `paid`, segue o fluxo de aprovação. Caso contrário, mantém `PENDING` aguardando o resultado assíncrono. |
+| `checkout.session.async_payment_succeeded` | Fluxo de aprovação. |
+| `checkout.session.async_payment_failed` | `FAILED` e cancelamento do pedido para liberar o estoque. |
+| `checkout.session.expired` | `EXPIRED` e cancelamento do pedido para liberar o estoque. |
+| Outros | Registrados e ignorados. |
+
+**Fluxo de aprovação:** o Payment API chama `POST /ws/orders/{orderId}/confirm` e confere o **status no corpo** da resposta. Só com `CONFIRMED` o pagamento passa a `APPROVED`. Se o pedido não puder mais ser confirmado, aplica-se o tratamento de pagamento tardio (abaixo).
+
+Garantias:
+
+- O identificador de cada evento é gravado em `processed_stripe_event` na mesma transação do processamento. Um evento repetido responde `200 OK` sem ser reprocessado.
+- O pagamento é localizado pelo id da sessão ou, se necessário, pelo `payment_id` enviado na metadata. Evento de sessão desconhecida responde `200 OK` e é apenas registrado em log.
+- Se o Order API ou o Stripe estiverem indisponíveis (ou o `confirm` responder `404`), o webhook responde `500` e a transação inteira é desfeita, inclusive o registro do evento. O Stripe reenvia o evento, e as chamadas ao Order API são idempotentes.
+- Um pedido já confirmado não é confirmado de novo, e um `409` no cancelamento de pedido confirmado é apenas registrado em log.
+
+| Status | Quando ocorre |
+|---|---|
+| `200 OK` | Evento processado, duplicado, ignorado ou de sessão desconhecida. |
+| `400 Bad Request` | Assinatura ausente ou inválida, ou corpo que não é um evento do Stripe. |
+| `500 Internal Server Error` | Falha de infraestrutura; nada é gravado e o Stripe reenviará. |
+
+### Pagamento aprovado tardiamente
+
+A reserva de estoque dura 10 minutos, mas a sessão do Stripe dura no mínimo 30. O cliente pode, portanto, pagar depois que a reserva expirou. Nesse caso o pedido não pode ser confirmado sem estoque:
+
+1. O `confirm` do Order API responde `200` com status `EXPIRED` ou `CANCELLED`, ou `409 Conflict`.
+2. O Payment API estorna o valor inteiro no Stripe (pela transação do pagamento, com chave de idempotência por pagamento, sem estorno duplicado em reenvios).
+3. O pagamento passa a `REFUNDED` e o pedido continua sem confirmação. O cliente pode fazer um novo pedido.
+
+Para reduzir esse caso, nenhuma sessão é criada nem reaproveitada quando a reserva tem menos de 2 minutos restantes, e uma sessão aberta de pedido vencido é expirada no Stripe na próxima tentativa de pagamento.
+
+O mesmo estorno acontece se a aprovação chegar para um pagamento já `FAILED`, `EXPIRED` ou `CANCELLED`: o caso é registrado em log de erro, o pedido não é confirmado e o pagamento passa a `REFUNDED`. O estorno é idempotente: se o Stripe informar que a cobrança já foi totalmente estornada (`charge_already_refunded`), o resultado é tratado como sucesso.
+
+**Limitação conhecida:** não há job de reconciliação. Se o estorno ou a confirmação falharem de forma permanente (por exemplo, o Stripe recusa o estorno ou o Order API responde sempre erro), o webhook responde `500` a cada tentativa e o Stripe reenvia o evento por cerca de 3 dias. Durante esse tempo o pagamento continua `PENDING`; se o problema não se resolver, o caso exige intervenção manual (conferir o pagamento no painel do Stripe, estornar ou confirmar o pedido e reenviar o evento).
