@@ -1,6 +1,7 @@
 package br.edu.atitus.productapi.servicesimpl;
 
 import br.edu.atitus.productapi.dtos.CurrencyResponse;
+import br.edu.atitus.productapi.dtos.ProductImageResponse;
 import br.edu.atitus.productapi.dtos.ProductRequest;
 import br.edu.atitus.productapi.dtos.ProductSearchCriteria;
 import br.edu.atitus.productapi.dtos.ProductStatusRequest;
@@ -29,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,13 +40,16 @@ class ProductServiceJpaTest {
     private SubcategoryRepository subcategoryRepository;
     private CurrencyClientService currencyClientService;
     private ProductServiceJpa productService;
+    private ProductImageService productImageService;
 
     @BeforeEach
     void setUp() {
         repository = mock(ProductRepository.class);
         subcategoryRepository = mock(SubcategoryRepository.class);
         currencyClientService = mock(CurrencyClientService.class);
-        productService = new ProductServiceJpa(repository, currencyClientService, subcategoryRepository);
+        productImageService = mock(ProductImageService.class);
+        productService = new ProductServiceJpa(
+                repository, currencyClientService, subcategoryRepository, productImageService);
         ReflectionTestUtils.setField(productService, "serverPort", "8000");
         ReflectionTestUtils.setField(productService, "promotionMessage", "Test promotion");
         when(repository.findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(1L))
@@ -292,6 +297,29 @@ class ProductServiceJpaTest {
 
         assertEquals(true, updated.isActive());
         verify(repository).save(product);
+    }
+
+    @Test
+    void loadsImagesOfTheWholePageInASingleQueryAndKeepsImageCompatible() {
+        var withImages = product();
+        var withoutImages = product();
+        withoutImages.setId(2L);
+        withoutImages.setImage("legado.jpg");
+        when(repository.search(any(), any(), any())).thenReturn(new PageImpl<>(List.of(withImages, withoutImages)));
+        when(currencyClientService.getCurrency("USD", "BRL"))
+                .thenReturn(new CurrencyResponse("USD", "BRL", 5.0, "currency-api"));
+        when(productImageService.findByProductIds(List.of(1L, 2L))).thenReturn(java.util.Map.of(
+                1L, List.of(new ProductImageResponse(10L, "https://cdn/p1.png", true, 1)),
+                2L, List.of()
+        ));
+
+        var page = productService.findAll(null, PageRequest.of(0, 10), "BRL");
+
+        verify(productImageService, times(1)).findByProductIds(any());
+        assertEquals("https://cdn/p1.png", page.getContent().get(0).image());
+        assertEquals(1, page.getContent().get(0).images().size());
+        assertEquals("legado.jpg", page.getContent().get(1).image());
+        assertEquals(List.of(), page.getContent().get(1).images());
     }
 
     private ProductEntity product() {
