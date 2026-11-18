@@ -23,7 +23,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -200,6 +204,111 @@ class OrderServiceJpaTest {
 
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(persistenceService).deleteRejectedOrder(91L);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HttpStatus.class, names = {"NOT_FOUND", "BAD_REQUEST", "UNPROCESSABLE_ENTITY"})
+    void rejectsOrderAndDeletesItWhenInventoryRefusesDefinitively(HttpStatus inventoryStatus) {
+        givenProvisionalOrder91();
+        when(inventoryClient.create(any(InventoryReservationRequest.class), eq("service-token")))
+                .thenThrow(HttpClientErrorException.create(
+                        inventoryStatus,
+                        inventoryStatus.getReasonPhrase(),
+                        HttpHeaders.EMPTY,
+                        new byte[0],
+                        StandardCharsets.UTF_8
+                ));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.createOrder(
+                        new OrderDTO(List.of(new OrderItemDTO(17L, 2)), shippingAddress()),
+                        42L,
+                        "retry-abc"
+                )
+        );
+
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, exception.getStatusCode());
+        verify(persistenceService).deleteRejectedOrder(91L);
+    }
+
+    @Test
+    void explainsMissingInventoryRecordToTheClient() {
+        givenProvisionalOrder91();
+        when(inventoryClient.create(any(InventoryReservationRequest.class), eq("service-token")))
+                .thenThrow(HttpClientErrorException.create(
+                        HttpStatus.NOT_FOUND,
+                        "Not Found",
+                        HttpHeaders.EMPTY,
+                        new byte[0],
+                        StandardCharsets.UTF_8
+                ));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.createOrder(
+                        new OrderDTO(List.of(new OrderItemDTO(17L, 2)), shippingAddress()),
+                        42L,
+                        null
+                )
+        );
+
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, exception.getStatusCode());
+        assertEquals("Produto sem estoque cadastrado no inventário.", exception.getReason());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HttpStatus.class, names = {"INTERNAL_SERVER_ERROR", "BAD_GATEWAY", "SERVICE_UNAVAILABLE"})
+    void keepsOrderResumableWhenInventoryFailsWithServerError(HttpStatus inventoryStatus) {
+        givenProvisionalOrder91();
+        when(inventoryClient.create(any(InventoryReservationRequest.class), eq("service-token")))
+                .thenThrow(HttpServerErrorException.create(
+                        inventoryStatus,
+                        inventoryStatus.getReasonPhrase(),
+                        HttpHeaders.EMPTY,
+                        new byte[0],
+                        StandardCharsets.UTF_8
+                ));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.createOrder(
+                        new OrderDTO(List.of(new OrderItemDTO(17L, 2)), shippingAddress()),
+                        42L,
+                        "retry-abc"
+                )
+        );
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatusCode());
+        verify(persistenceService, never()).deleteRejectedOrder(any());
+    }
+
+    @Test
+    void keepsOrderResumableWhenInventoryIsUnreachable() {
+        givenProvisionalOrder91();
+        when(inventoryClient.create(any(InventoryReservationRequest.class), eq("service-token")))
+                .thenThrow(new ResourceAccessException("Connection refused"));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.createOrder(
+                        new OrderDTO(List.of(new OrderItemDTO(17L, 2)), shippingAddress()),
+                        42L,
+                        "retry-abc"
+                )
+        );
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatusCode());
+        verify(persistenceService, never()).deleteRejectedOrder(any());
+    }
+
+    private void givenProvisionalOrder91() {
+        when(productClient.getProductById(17L, "BRL")).thenReturn(product());
+        when(persistenceService.savePending(any(OrderEntity.class))).thenAnswer(invocation -> {
+            OrderEntity order = invocation.getArgument(0);
+            order.setId(91L);
+            return order;
+        });
     }
 
     @Test

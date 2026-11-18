@@ -40,20 +40,20 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
                     where (:orderId is null or o.id = :orderId)
                       and (:status is null or o.status = :status)
                       and (:customerId is null or o.customerId = :customerId)
-                      and (:createdFrom is null or o.orderDate >= :createdFrom)
-                      and (:createdTo is null or o.orderDate <= :createdTo)
-                      and (:confirmedFrom is null or o.confirmedAt >= :confirmedFrom)
-                      and (:confirmedTo is null or o.confirmedAt <= :confirmedTo)
+                      and (cast(:createdFrom as Instant) is null or o.orderDate >= :createdFrom)
+                      and (cast(:createdTo as Instant) is null or o.orderDate <= :createdTo)
+                      and (cast(:confirmedFrom as Instant) is null or o.confirmedAt >= :confirmedFrom)
+                      and (cast(:confirmedTo as Instant) is null or o.confirmedAt <= :confirmedTo)
                     """,
             countQuery = """
                     select count(o.id) from OrderEntity o
                     where (:orderId is null or o.id = :orderId)
                       and (:status is null or o.status = :status)
                       and (:customerId is null or o.customerId = :customerId)
-                      and (:createdFrom is null or o.orderDate >= :createdFrom)
-                      and (:createdTo is null or o.orderDate <= :createdTo)
-                      and (:confirmedFrom is null or o.confirmedAt >= :confirmedFrom)
-                      and (:confirmedTo is null or o.confirmedAt <= :confirmedTo)
+                      and (cast(:createdFrom as Instant) is null or o.orderDate >= :createdFrom)
+                      and (cast(:createdTo as Instant) is null or o.orderDate <= :createdTo)
+                      and (cast(:confirmedFrom as Instant) is null or o.confirmedAt >= :confirmedFrom)
+                      and (cast(:confirmedTo as Instant) is null or o.confirmedAt <= :confirmedTo)
                     """
     )
     Page<Long> findIdsForAdmin(
