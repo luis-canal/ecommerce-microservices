@@ -4,6 +4,7 @@ import br.edu.atitus.productapi.dtos.InventoryProductData;
 import br.edu.atitus.productapi.dtos.CartProductData;
 import br.edu.atitus.productapi.repositories.ProductRepository;
 import br.edu.atitus.productapi.servicesimpl.CurrencyClientService;
+import br.edu.atitus.productapi.servicesimpl.ProductImageService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,15 +26,18 @@ public class InternalProductController {
 
     private final ProductRepository productRepository;
     private final CurrencyClientService currencyClientService;
+    private final ProductImageService productImageService;
     private final String serviceToken;
 
     public InternalProductController(
             ProductRepository productRepository,
             CurrencyClientService currencyClientService,
+            ProductImageService productImageService,
             @Value("${inventory.security.service-token:}") String serviceToken
     ) {
         this.productRepository = productRepository;
         this.currencyClientService = currencyClientService;
+        this.productImageService = productImageService;
         this.serviceToken = serviceToken;
     }
 
@@ -87,7 +91,8 @@ public class InternalProductController {
                 product.getName(),
                 product.getBrand(),
                 product.getModel(),
-                product.getImage(),
+                // Snapshot do carrinho/pedido: URL da principal ou o valor legado da coluna image.
+                productImageService.findPrimaryImageUrl(product.getId()).orElse(product.getImage()),
                 product.getCurrency(),
                 product.getPrice(),
                 convertedPrice,
