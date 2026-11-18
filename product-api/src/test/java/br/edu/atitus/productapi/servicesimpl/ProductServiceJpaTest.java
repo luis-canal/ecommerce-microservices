@@ -9,6 +9,7 @@ import br.edu.atitus.productapi.dtos.ProductUpdateRequest;
 import br.edu.atitus.productapi.entities.CategoryEntity;
 import br.edu.atitus.productapi.entities.ProductEntity;
 import br.edu.atitus.productapi.entities.SubcategoryEntity;
+import br.edu.atitus.productapi.enums.ProductStatusFilter;
 import br.edu.atitus.productapi.enums.ProductType;
 import br.edu.atitus.productapi.repositories.ProductRepository;
 import br.edu.atitus.productapi.repositories.SubcategoryRepository;
@@ -320,6 +321,85 @@ class ProductServiceJpaTest {
         assertEquals(1, page.getContent().get(0).images().size());
         assertEquals("legado.jpg", page.getContent().get(1).image());
         assertEquals(List.of(), page.getContent().get(1).images());
+    }
+
+    @Test
+    void adminDetailReturnsInactiveProduct() throws Exception {
+        var inactive = product();
+        inactive.setCurrency("BRL");
+        inactive.setActive(false);
+        when(repository.findById(1L)).thenReturn(Optional.of(inactive));
+
+        var response = productService.findByIdForAdmin(1L, "BRL");
+
+        assertEquals(1L, response.id());
+        assertEquals(false, response.active());
+        verify(repository, never())
+                .findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(any());
+    }
+
+    @Test
+    void adminDetailReturnsActiveProductUnderInactiveCategory() throws Exception {
+        var product = product();
+        product.setCurrency("BRL");
+        product.getSubcategory().getCategory().setActive(false);
+        when(repository.findById(1L)).thenReturn(Optional.of(product));
+
+        var response = productService.findByIdForAdmin(1L, "BRL");
+
+        assertEquals(true, response.active());
+    }
+
+    @Test
+    void adminDetailReturnsNotFoundForUnknownProduct() {
+        when(repository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(jakarta.persistence.EntityNotFoundException.class,
+                () -> productService.findByIdForAdmin(99L, "BRL"));
+    }
+
+    @Test
+    void publicDetailStillUsesActiveOnlyQuery() throws Exception {
+        productService.findById(1L, "USD");
+
+        verify(repository)
+                .findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(1L);
+        verify(repository, never()).findById(any());
+    }
+
+    @Test
+    void criteriaWithoutStatusDefaultsToActive() {
+        assertEquals(ProductStatusFilter.ACTIVE,
+                new ProductSearchCriteria(null, null, null, null, null).status());
+        assertEquals(ProductStatusFilter.ACTIVE,
+                new ProductSearchCriteria(null, null, null, null, null, null).status());
+    }
+
+    @Test
+    void searchPreservesStatusAfterNormalizingTheOtherFilters() throws Exception {
+        var criteria = new ProductSearchCriteria("  cuia  ", 2L, 7L, null, null, ProductStatusFilter.INACTIVE);
+        var pageable = PageRequest.of(1, 5, Sort.by("name"));
+        when(repository.search(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        productService.findAll(criteria, pageable, "BRL");
+
+        verify(repository).search(
+                new ProductSearchCriteria("cuia", 2L, 7L, null, null, ProductStatusFilter.INACTIVE),
+                pageable,
+                java.util.Map.of()
+        );
+    }
+
+    @Test
+    void priceSearchLooksUpCurrenciesWithTheRequestedStatus() throws Exception {
+        var criteria = new ProductSearchCriteria(null, null, null, new BigDecimal("10"), null, ProductStatusFilter.ALL);
+        when(repository.findCurrencies(criteria)).thenReturn(List.of("BRL"));
+        when(repository.search(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        productService.findAll(criteria, PageRequest.of(0, 10), "BRL");
+
+        verify(repository).findCurrencies(criteria);
+        verify(repository).search(criteria, PageRequest.of(0, 10), java.util.Map.of("BRL", BigDecimal.ONE));
     }
 
     private ProductEntity product() {

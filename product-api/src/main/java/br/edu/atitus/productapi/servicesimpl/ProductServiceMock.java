@@ -74,6 +74,11 @@ public class ProductServiceMock implements ProductService {
     }
 
     @Override
+    public ProductResponse findByIdForAdmin(Long id, String targetCurrency) {
+        throw new UnsupportedOperationException("Detalhe administrativo não disponível no serviço mock");
+    }
+
+    @Override
     public ProductResponse findById(Long id, String targetCurrency) {
         ProductEntity product = database.stream()
                 .filter(item -> item.getId().equals(id))

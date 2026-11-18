@@ -98,6 +98,17 @@ public class ProductServiceJpa implements ProductService {
         return getResponse(product, productImageService.findByProductId(product.getId()), environment, targetCurrency);
     }
 
+    /** Detalhe administrativo: retorna o produto mesmo se ele, a subcategoria ou a categoria estiverem inativos. */
+    @Override
+    @Transactional(readOnly = true)
+    public ProductResponse findByIdForAdmin(Long id, String targetCurrency) throws Exception {
+        var product = repository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
+        String environment = "Product API running in port " + serverPort;
+
+        return getResponse(product, productImageService.findByProductId(product.getId()), environment, targetCurrency);
+    }
+
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Page<ProductResponse> findAll(
@@ -269,7 +280,8 @@ public class ProductServiceJpa implements ProductService {
                 criteria.categoryId(),
                 criteria.subcategoryId(),
                 criteria.minPrice(),
-                criteria.maxPrice()
+                criteria.maxPrice(),
+                criteria.status()
         );
     }
 

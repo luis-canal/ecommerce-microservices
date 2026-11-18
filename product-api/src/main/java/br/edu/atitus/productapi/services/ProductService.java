@@ -11,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 
 public interface ProductService {
     ProductResponse findById(Long id, String targetCurrency) throws Exception;
+    ProductResponse findByIdForAdmin(Long id, String targetCurrency) throws Exception;
     Page<ProductResponse> findAll(ProductSearchCriteria criteria, Pageable pageable, String targetCurrency) throws Exception;
     ProductEntity save(ProductRequest request) throws Exception;
     ProductEntity update(Long id, ProductUpdateRequest request);
