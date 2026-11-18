@@ -1,5 +1,6 @@
 package br.edu.atitus.productapi.servicesimpl;
 
+import br.edu.atitus.productapi.dtos.ProductImageResponse;
 import br.edu.atitus.productapi.dtos.ProductRequest;
 import br.edu.atitus.productapi.dtos.ProductResponse;
 import br.edu.atitus.productapi.dtos.ProductSearchCriteria;
@@ -24,6 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -33,12 +35,15 @@ public class ProductServiceJpa implements ProductService {
     private final ProductRepository repository;
     private final CurrencyClientService currencyClientService;
     private final SubcategoryRepository subcategoryRepository;
+    private final ProductImageService productImageService;
 
     public ProductServiceJpa(
             ProductRepository repository,
             CurrencyClientService currencyClientService,
-            SubcategoryRepository subcategoryRepository
+            SubcategoryRepository subcategoryRepository,
+            ProductImageService productImageService
     ) {
+        this.productImageService = productImageService;
         this.repository = repository;
         this.currencyClientService = currencyClientService;
         this.subcategoryRepository = subcategoryRepository;
@@ -50,7 +55,12 @@ public class ProductServiceJpa implements ProductService {
     @Value("${app.promotion.message:Nenhuma Promoção Ativa}")
     private String promotionMessage;
 
-    private ProductResponse getResponse(ProductEntity entity, String environment, String targetCurrency) {
+    private ProductResponse getResponse(
+            ProductEntity entity,
+            List<ProductImageResponse> images,
+            String environment,
+            String targetCurrency
+    ) {
         BigDecimal convertedValue = entity.getPrice();
         if (! entity.getCurrency().equalsIgnoreCase(targetCurrency)) {
             try {
@@ -69,6 +79,7 @@ public class ProductServiceJpa implements ProductService {
         }
         return ProductResponse.fromEntity(
                 entity,
+                images,
                 environment,
                 promotionMessage,
                 targetCurrency,
@@ -84,7 +95,7 @@ public class ProductServiceJpa implements ProductService {
                 .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
         String environment = "Product API running in port " + serverPort;
 
-        return getResponse(product, environment, targetCurrency);
+        return getResponse(product, productImageService.findByProductId(product.getId()), environment, targetCurrency);
     }
 
     @Override
@@ -104,9 +115,18 @@ public class ProductServiceJpa implements ProductService {
                 : Map.of();
         var products = repository.search(validatedCriteria, pageable, conversionRatesToBrl);
         String environment = "Product API running in port " + serverPort;
+        // Uma única consulta para as imagens de todos os produtos da página (sem N+1).
+        var imagesByProduct = productImageService.findByProductIds(
+                products.getContent().stream().map(ProductEntity::getId).toList()
+        );
 
         return products.map(
-                entity -> getResponse(entity, environment, responseCurrency)
+                entity -> getResponse(
+                        entity,
+                        imagesByProduct.getOrDefault(entity.getId(), List.of()),
+                        environment,
+                        responseCurrency
+                )
         );
     }
 

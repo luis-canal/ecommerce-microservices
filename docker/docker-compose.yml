@@ -194,6 +194,11 @@ services:
     build:
       context: ../product-api
     container_name: product-api
+    # Credenciais do armazenamento de imagens (STORAGE_*), lidas de docker/.env.
+    # Copie docker/.env.example para docker/.env e preencha; o arquivo não é versionado.
+    env_file:
+      - path: .env
+        required: false
     environment:
       SPRING_CONFIG_IMPORT: "consul:"
       SPRING_CLOUD_CONSUL_HOST: consul

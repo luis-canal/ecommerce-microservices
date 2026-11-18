@@ -216,6 +216,7 @@ Retorna uma página Spring Data. `price` é o valor original e `convertedPrice` 
       "currency": "BRL",
       "price": 75.0,
       "image": "https://example.com/cuia.jpg",
+      "images": [],
       "subcategoryId": 7,
       "subcategoryName": "Porongo",
       "categoryId": 2,
@@ -274,7 +275,7 @@ GET /products/17?targetCurrency=USD
 
 **Sucesso — `200 OK`**
 
-Mesmo formato do item em [listar produtos](#listar-pesquisar-filtrar-e-ordenar-produtos). Se a conversão do detalhe falhar, o serviço atualmente retorna o produto com `convertedPrice: -1` e registra a falha no campo `environment`.
+Mesmo formato do item em [listar produtos](#listar-pesquisar-filtrar-e-ordenar-produtos). O campo `image` é a URL da imagem principal; sem imagens enviadas, mantém o valor legado da coluna `image` (ou `null`). `images` lista as imagens enviadas por [upload](#imagens-do-produto), ordenadas por `position` (lista vazia quando não houver). Se a conversão do detalhe falhar, o serviço atualmente retorna o produto com `convertedPrice: -1` e registra a falha no campo `environment`.
 
 ```json
 {
@@ -285,7 +286,15 @@ Mesmo formato do item em [listar produtos](#listar-pesquisar-filtrar-e-ordenar-p
   "description": "Cuia de porongo",
   "currency": "BRL",
   "price": 75.0,
-  "image": "https://example.com/cuia.jpg",
+  "image": "https://<projeto>.supabase.co/storage/v1/object/public/product-images/products/17/3f1c...png",
+  "images": [
+    {
+      "id": 4,
+      "url": "https://<projeto>.supabase.co/storage/v1/object/public/product-images/products/17/3f1c...png",
+      "isPrimary": true,
+      "position": 1
+    }
+  ],
   "subcategoryId": 7,
   "subcategoryName": "Porongo",
   "categoryId": 2,
@@ -347,7 +356,7 @@ Cria um produto ativo. A subcategoria informada precisa existir e estar ativa, a
 
 **Sucesso — `201 Created`**
 
-Retorna a entidade de produto criada, incluindo a associação `subcategory`.
+Retorna a entidade de produto criada, incluindo a associação `subcategory`. O campo `image` traz a URL da imagem principal (ou o valor legado da coluna, ou `null`) e `images` lista as imagens enviadas por [upload](#imagens-do-produto) (vazia em um produto recém-criado).
 
 ```json
 {
@@ -376,7 +385,8 @@ Retorna a entidade de produto criada, incluindo a associação `subcategory`.
     "active": true,
     "createdAt": "2026-01-15T12:00:00Z",
     "updatedAt": "2026-01-15T12:00:00Z"
-  }
+  },
+  "images": []
 }
 ```
 
@@ -410,7 +420,7 @@ Atualiza os campos editáveis do produto. O request é efetivamente completo: en
 | `description` | string | Sim | Descrição não vazia. |
 | `currency` | string | Sim | Código de moeda não vazio. |
 | `price` | number (`BigDecimal`) | Sim | Preço positivo. |
-| `image` | string ou `null` | Não | Imagem; nulo remove o valor atual. |
+| `image` | string ou `null` | Não | URL legada da imagem; nulo remove o valor atual. Só aparece como `image` enquanto o produto não tiver imagens enviadas por [upload](#imagens-do-produto). |
 | `subcategoryId` | integer (`Long`) | Sim | Subcategoria ativa e de categoria ativa. |
 
 ```json
@@ -477,6 +487,58 @@ Retorna a entidade do produto com `active` atualizado. Exemplo: o mesmo objeto d
 | `404 Not Found` | Produto não encontrado. | `"Produto não encontrado"` |
 | `409 Conflict` | Tentativa de reativar com categoria ou subcategoria inativa. | `"Não é possível reativar um produto com categoria ou subcategoria inativa"` |
 | `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+
+### Imagens do produto
+
+Imagens enviadas pelo administrador e armazenadas no Supabase Storage (API compatível com S3). O banco guarda apenas a chave do objeto (`products/{productId}/{uuid}.{ext}`); a URL pública é montada como `{STORAGE_PUBLIC_BASE_URL}/{chave}`.
+
+Regras:
+
+- Formatos aceitos: JPEG, PNG e WebP, identificados pelo conteúdo (magic bytes), não pela extensão nem pelo `Content-Type` enviado. O arquivo é gravado no storage com o `Content-Type` detectado.
+- Até 5 MB por imagem e 8 imagens por produto (configuráveis por `app.images.max-size-bytes` e `app.images.max-per-product`).
+- A primeira imagem enviada vira a principal; há no máximo uma principal por produto.
+- Ao remover a principal, a próxima imagem (menor `position`) é promovida.
+- O campo `image` das respostas de produto e dos snapshots de carrinho e pedido é a URL da imagem principal; sem imagens, continua com o valor legado.
+
+**Autenticação:** Sim — Bearer Token de administrador em todos os endpoints abaixo.
+
+| Método | Endpoint | Descrição | Sucesso |
+|---|---|---|---|
+| POST | `/ws/products/{id}/images` | Envia uma imagem (`multipart/form-data`, campo `file`). | `201 Created` |
+| GET | `/ws/products/{id}/images` | Lista as imagens do produto, ordenadas por `position`. | `200 OK` |
+| PATCH | `/ws/products/{id}/images/{imageId}/primary` | Define a imagem principal. | `200 OK` |
+| DELETE | `/ws/products/{id}/images/{imageId}` | Remove a imagem (linha e arquivo). | `204 No Content` |
+
+```bash
+curl -X POST http://localhost:8080/ws/products/17/images \
+  -H "Authorization: Bearer <jwt>" \
+  -F "file=@cuia.png"
+```
+
+**Resposta do upload e do PATCH (mesmo formato de cada item da listagem)**
+
+```json
+{
+  "id": 4,
+  "url": "https://<projeto>.supabase.co/storage/v1/object/public/product-images/products/17/3f1c...png",
+  "isPrimary": true,
+  "position": 1
+}
+```
+
+**Erros comuns**
+
+| Status | Quando ocorre | Exemplo de corpo atual |
+|---|---|---|
+| `400 Bad Request` | Campo `file` ausente ou vazio, ou conteúdo que não é JPEG/PNG/WebP. | `"Formato de imagem não suportado. Envie JPEG, PNG ou WebP."` |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
+| `404 Not Found` | Produto ou imagem não encontrados (inclusive imagem de outro produto). | `"Produto não encontrado."` / `"Imagem não encontrada."` |
+| `409 Conflict` | O produto já tem o número máximo de imagens. | `"Limite de 8 imagens por produto atingido."` |
+| `413 Payload Too Large` | Imagem acima do limite. | `"A imagem excede o tamanho máximo de 5 MB."` |
+| `502 Bad Gateway` | Falha ao enviar o arquivo ao armazenamento. | `"Falha ao enviar a imagem ao armazenamento."` |
+
+Se a gravação no banco falhar após o envio, o arquivo é removido do armazenamento. Na remoção, a linha é apagada primeiro; uma falha ao apagar o arquivo é apenas registrada em log.
 
 ## Categorias e subcategorias
 

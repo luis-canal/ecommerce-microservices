@@ -83,6 +83,7 @@ public class ProductServiceMock implements ProductService {
         String responseCurrency = targetCurrency == null || targetCurrency.isBlank() ? "BRL" : targetCurrency;
         return ProductResponse.fromEntity(
                 product,
+                List.of(),
                 "Product API running in port " + serverPort,
                 promotionMessage,
                 responseCurrency,
@@ -128,6 +129,7 @@ public class ProductServiceMock implements ProductService {
         List<ProductResponse> responses = filtered.stream()
                 .map(product -> ProductResponse.fromEntity(
                         product,
+                        List.of(),
                         "Product API running in port " + serverPort,
                         promotionMessage,
                         responseCurrency,

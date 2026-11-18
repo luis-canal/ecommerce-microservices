@@ -7,6 +7,7 @@ import br.edu.atitus.productapi.entities.SubcategoryEntity;
 import br.edu.atitus.productapi.enums.ProductType;
 import br.edu.atitus.productapi.repositories.ProductRepository;
 import br.edu.atitus.productapi.servicesimpl.CurrencyClientService;
+import br.edu.atitus.productapi.servicesimpl.ProductImageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,7 +45,8 @@ class InternalProductControllerTest {
         when(currencyClientService.getCurrency("USD", "BRL"))
                 .thenReturn(new CurrencyResponse("USD", "BRL", 5.25, "test"));
         InternalProductController controller =
-                new InternalProductController(productRepository, currencyClientService, "service-secret");
+                new InternalProductController(
+                        productRepository, currencyClientService, mock(ProductImageService.class), "service-secret");
 
         var response = controller.getCartData(17L, "service-secret").getBody();
 
@@ -54,10 +56,38 @@ class InternalProductControllerTest {
     }
 
     @Test
+    void cartDataImageUsesPrimaryImageOrFallsBackToLegacyColumn() {
+        ProductRepository productRepository = mock(ProductRepository.class);
+        ProductImageService imageService = mock(ProductImageService.class);
+        CategoryEntity category = new CategoryEntity();
+        category.setActive(true);
+        SubcategoryEntity subcategory = new SubcategoryEntity();
+        subcategory.setCategory(category);
+        subcategory.setActive(true);
+        for (long id : new long[]{1L, 2L}) {
+            ProductEntity product = new ProductEntity();
+            product.setId(id);
+            product.setCurrency("BRL");
+            product.setPrice(new BigDecimal("10.00"));
+            product.setImage("legado.jpg");
+            product.setSubcategory(subcategory);
+            when(productRepository.findCartDataById(id)).thenReturn(Optional.of(product));
+        }
+        when(imageService.findPrimaryImageUrl(1L)).thenReturn(Optional.of("https://cdn/principal.png"));
+        when(imageService.findPrimaryImageUrl(2L)).thenReturn(Optional.empty());
+        InternalProductController controller = new InternalProductController(
+                productRepository, mock(CurrencyClientService.class), imageService, "service-secret");
+
+        assertEquals("https://cdn/principal.png", controller.getCartData(1L, "service-secret").getBody().image());
+        assertEquals("legado.jpg", controller.getCartData(2L, "service-secret").getBody().image());
+    }
+
+    @Test
     void rejectsCartDataRequestsWithoutTheServiceCredential() {
         InternalProductController controller = new InternalProductController(
                 mock(ProductRepository.class),
                 mock(CurrencyClientService.class),
+                mock(ProductImageService.class),
                 "service-secret"
         );
 
