@@ -103,6 +103,7 @@ Responsável pela consulta e pelo ciclo de vida dos produtos do catálogo.
 - Produtos inativos não são exibidos nas consultas públicas.
 - Validação de campos obrigatórios e preços positivos.
 - Carregamento de dados iniciais por migrações Flyway.
+- Upload de imagens de produto (JPEG, PNG e WebP) para o Supabase Storage via API S3, com imagem principal e até 8 imagens por produto.
 
 **Principais endpoints:**
 
@@ -113,6 +114,10 @@ Responsável pela consulta e pelo ciclo de vida dos produtos do catálogo.
 | POST | `/ws/products` | Cadastra produto (administrador) |
 | PUT | `/ws/products/{id}` | Edita dados permitidos (administrador) |
 | PATCH | `/ws/products/{id}/status` | Desativa ou reativa um produto (administrador) |
+| POST | `/ws/products/{id}/images` | Envia imagem do produto, multipart com campo `file` (administrador) |
+| GET | `/ws/products/{id}/images` | Lista as imagens do produto (administrador) |
+| PATCH | `/ws/products/{id}/images/{imageId}/primary` | Define a imagem principal (administrador) |
+| DELETE | `/ws/products/{id}/images/{imageId}` | Remove uma imagem (administrador) |
 
 O cadastro recebe `name`, `brand`, `model`, `description`, `currency`, `price`, `image`, `subcategoryId` e `productType`. A descrição identifica o texto descritivo do produto; `productType` aceita `SINGLE_UNIT` ou `MULTI_UNIT`. O PUT atualiza os dados editáveis, mas não permite alterar o identificador, o tipo de estoque ou o status. O status é controlado exclusivamente pelo PATCH com `{"active": false}` ou `{"active": true}`. A reativação é recusada se a categoria ou subcategoria do produto estiver inativa.
 
@@ -123,6 +128,8 @@ A listagem utiliza, por padrão, página 0, tamanho 10 e ordenação por descri�
 O endpoint aceita os filtros combináveis `name` (trecho do nome, sem diferenciar maiúsculas/minúsculas), `categoryId`, `subcategoryId`, `minPrice` e `maxPrice`. IDs de categoria e subcategoria são `Long`. Os limites de preço são não negativos, usam `BigDecimal` e são sempre interpretados em BRL; para produtos cadastrados em outra moeda, os valores são convertidos para BRL antes da filtragem ou ordenação. Se uma conversão necessária falhar, a API retorna erro em vez de resultados incompletos. Os preços são persistidos com duas casas decimais.
 
 A ordenação pode ser feita por `price` ou `name`, em ordem `asc` ou `desc`; nome é comparado sem distinção entre maiúsculas/minúsculas. A paginação aceita `page` e `size`, com padrão página 0 e tamanho 10. `targetCurrency` define a moeda dos preços apresentados na resposta e, quando omitido, usa BRL.
+
+As respostas de produto trazem `images` (`id`, `url`, `isPrimary`, `position`) e o campo `image`, que é a URL da imagem principal ou, sem imagens enviadas, o valor legado da coluna `image`. Carrinho e pedido continuam usando `image` nos snapshots, sem alterações nesses serviços. O armazenamento fica atrás da interface `ImageStorage`; trocar de provedor compatível com S3 (Cloudflare R2, MinIO) exige apenas configuração. Detalhes em [API.md](./API.md#imagens-do-produto).
 
 Exemplo:
 
@@ -320,6 +327,24 @@ docker compose -f docker/docker-compose.yml up --build
 ```
 
 O script gera cinco segredos se ainda não existirem, grava-os no volume `auth_internal_secret` e publica os valores no KV do Consul. A credencial serviço-a-serviço é compartilhada pelos serviços que realizam chamadas internas; as credenciais de encaminhamento do Gateway são distintas para Inventory, Order e Cart. Os valores são preservados enquanto o volume existir. Não execute `docker compose down -v` se quiser conservar as credenciais e os dados dos bancos.
+
+### Armazenamento de imagens (Supabase Storage)
+
+O `product-api` lê as credenciais do armazenamento apenas de variáveis de ambiente. No Compose, elas vêm de `docker/.env`, que não é versionado. Copie o modelo e preencha:
+
+```bash
+cp docker/.env.example docker/.env
+```
+
+| Variável | Descrição |
+|---|---|
+| `STORAGE_S3_ENDPOINT` | Endpoint S3 do projeto Supabase (`https://<projeto>.storage.supabase.co/storage/v1/s3`) |
+| `STORAGE_S3_REGION` | Região do projeto |
+| `STORAGE_S3_ACCESS_KEY` / `STORAGE_S3_SECRET_KEY` | Chaves de acesso S3 geradas no painel do Supabase |
+| `STORAGE_S3_BUCKET` | Bucket público, padrão `product-images` |
+| `STORAGE_PUBLIC_BASE_URL` | Base das URLs públicas (`https://<projeto>.supabase.co/storage/v1/object/public/product-images`) |
+
+Sem essas variáveis o serviço sobe normalmente; apenas o upload de imagens falha. Nunca versione chaves reais.
 
 O `analytics-api` acrescenta mais uma credencial de encaminhamento do Gateway, gerada e persistida da mesma forma que as demais.
 
