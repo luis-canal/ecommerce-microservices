@@ -67,3 +67,11 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['analytics-api:8700']
+
+  # ========================================================
+  # PAYMENT API
+  # ========================================================
+  - job_name: 'payment-api'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['payment-api:8800']

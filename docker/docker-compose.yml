@@ -188,6 +188,29 @@ services:
     restart: unless-stopped
 
   # ==========================================================
+  # BANCO DE DADOS - PAYMENT API
+  # ==========================================================
+  payment-db:
+    profiles:
+      - payment
+    image: postgres:17
+    container_name: payment-db
+    environment:
+      POSTGRES_DB: payment_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - payment_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
   # PRODUCT API
   # ==========================================================
   product-api:
@@ -351,6 +374,37 @@ services:
     restart: unless-stopped
 
   # ==========================================================
+  # PAYMENT API
+  # ==========================================================
+  # Integração com o Stripe (somente modo teste). Suba com: docker compose --profile payment up -d
+  # As credenciais do Stripe (STRIPE_*, PAYMENT_*_URL) vêm de docker/.env.payment, que não é
+  # versionado e é lido somente por este serviço. Copie docker/.env.payment.example e preencha.
+  # Nenhum outro serviço depende do payment-api.
+  payment-api:
+    profiles:
+      - payment
+    build:
+      context: ../payment-api
+    container_name: payment-api
+    env_file:
+      - path: .env.payment
+        required: false
+    environment:
+      SPRING_CONFIG_IMPORT: "consul:"
+      SPRING_CLOUD_CONSUL_HOST: consul
+      SPRING_CLOUD_CONSUL_PORT: 8500
+    depends_on:
+      consul-config:
+        condition: service_completed_successfully
+      payment-db:
+        condition: service_healthy
+      order-api:
+        condition: service_started
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ==========================================================
   # GATEWAY API
   # ==========================================================
   gateway-api:
@@ -490,6 +544,7 @@ volumes:
   order_data:
   cart_data:
   analytics_data:
+  payment_data:
   auth_internal_secret:
   prometheus_data:
   loki_data:

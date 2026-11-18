@@ -225,6 +225,23 @@ if [ "${#GATEWAY_ANALYTICS_TOKEN}" -lt 32 ]; then
     exit 1
 fi
 
+GATEWAY_PAYMENT_SECRET_FILE="/run/secrets/gateway_payment_downstream_token"
+if [ ! -s "$GATEWAY_PAYMENT_SECRET_FILE" ]; then
+    umask 077
+    generated_secret="$(consul keygen)"
+    if [ "${#generated_secret}" -lt 32 ]; then
+        echo "Não foi possível gerar uma credencial Gateway-Payment válida" >&2
+        exit 1
+    fi
+    printf '%s' "$generated_secret" > "$GATEWAY_PAYMENT_SECRET_FILE"
+fi
+
+GATEWAY_PAYMENT_TOKEN="$(cat "$GATEWAY_PAYMENT_SECRET_FILE")"
+if [ "${#GATEWAY_PAYMENT_TOKEN}" -lt 32 ]; then
+    echo "A credencial Gateway-Payment persistida é inválida" >&2
+    exit 1
+fi
+
 put "config/auth-api/server.port" "8200"
 put "config/auth-api/app.auth.internal-secret" "$AUTH_INTERNAL_SECRET"
 
@@ -250,6 +267,8 @@ put "config/cart-api/cart.security.gateway-token" "$GATEWAY_CART_TOKEN"
 put "config/gateway-api/gateway.security.cart-downstream-token" "$GATEWAY_CART_TOKEN"
 put "config/analytics-api/analytics.security.gateway-token" "$GATEWAY_ANALYTICS_TOKEN"
 put "config/gateway-api/gateway.security.analytics-downstream-token" "$GATEWAY_ANALYTICS_TOKEN"
+put "config/payment-api/payment.security.gateway-token" "$GATEWAY_PAYMENT_TOKEN"
+put "config/gateway-api/gateway.security.payment-downstream-token" "$GATEWAY_PAYMENT_TOKEN"
 
 
 # ==========================================================
@@ -312,6 +331,19 @@ put "config/analytics-api/analytics.security.service-token" "$SERVICE_AUTH_TOKEN
 put "config/analytics-api/analytics.clients.order-api.base-url" "http://order-api"
 put "config/analytics-api/analytics.clients.inventory-api.base-url" "http://inventory-api"
 put "config/analytics-api/analytics.collection.interval-ms" "300000"
+
+# ==========================================================
+# PAYMENT API
+# ==========================================================
+# As credenciais do Stripe NÃO ficam no Consul: vêm de docker/.env (variáveis de ambiente).
+
+put "config/payment-api/server.port" "8800"
+put "config/payment-api/spring.datasource.url"     "jdbc:postgresql://payment-db:5432/payment_db"
+put "config/payment-api/spring.datasource.username" "postgres"
+put "config/payment-api/spring.datasource.password" "postgres"
+put "config/payment-api/payment.security.service-token" "$SERVICE_AUTH_TOKEN"
+put "config/payment-api/payment.clients.order-api.base-url" "http://order-api"
+put "config/payment-api/payment.min-reservation-seconds" "120"
 
 # ==========================================================
 # OBSERVABILIDADE - MÉTRICAS E TRACING
