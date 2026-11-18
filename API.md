@@ -1072,7 +1072,7 @@ Retorna o pedido com endereço, itens e dados de catálogo persistidos, valores 
 | `400 Bad Request` | Lista vazia, mais de 100 itens, IDs ou quantidades inválidas, IDs duplicados, endereço/UF/CEP inválido ou chave de idempotência maior que 128 caracteres. |
 | `403 Forbidden` | Usuário autenticado sem perfil de cliente. |
 | `409 Conflict` | Estoque insuficiente, chave repetida com conteúdo diferente ou reserva não ativa. O pedido provisório é removido nas rejeições definitivas de estoque. |
-| `422 Unprocessable Entity` | Produto não encontrado ou inativo no catálogo. |
+| `422 Unprocessable Entity` | Produto não encontrado ou inativo no catálogo, produto sem estoque cadastrado no Inventory API (`"Produto sem estoque cadastrado no inventário."`) ou reserva recusada pelo Inventory API como inválida (`"Reserva de estoque recusada pelo inventário."`). Nos casos de estoque, o pedido provisório é removido. |
 | `502 Bad Gateway` / `503 Service Unavailable` | Falha de integração. Se o resultado da reserva for incerto, repita a mesma requisição com a mesma `Idempotency-Key`; o pedido fica recuperável e a operação de reserva é idempotente por `orderId`. |
 
 Sem `Idempotency-Key`, repetir uma requisição após timeout pode criar outro pedido. Clientes devem gerar uma chave por intenção de compra e reutilizá-la em todas as tentativas daquela mesma operação. A chave considera os itens e o endereço; reutilizá-la com qualquer conteúdo diferente resulta em conflito.

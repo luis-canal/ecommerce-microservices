@@ -653,6 +653,20 @@ public class OrderServiceJpa implements OrderService {
                 persistenceService.deleteRejectedOrder(order.getId());
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Estoque indisponível para o pedido.");
             }
+            if (status == HttpStatus.NOT_FOUND.value()) {
+                persistenceService.deleteRejectedOrder(order.getId());
+                throw new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Produto sem estoque cadastrado no inventário."
+                );
+            }
+            if (status == HttpStatus.BAD_REQUEST.value() || status == HttpStatus.UNPROCESSABLE_ENTITY.value()) {
+                persistenceService.deleteRejectedOrder(order.getId());
+                throw new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Reserva de estoque recusada pelo inventário."
+                );
+            }
             throw new ResponseStatusException(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "Resultado da reserva incerto; o pedido pode ser retomado pela mesma Idempotency-Key."
