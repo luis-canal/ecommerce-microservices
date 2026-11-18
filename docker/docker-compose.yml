@@ -145,6 +145,8 @@ services:
   # BANCO DE DADOS - CART API
   # ==========================================================
   cart-db:
+    profiles:
+      - cart
     image: postgres:17
     container_name: cart-db
     environment:
@@ -166,6 +168,8 @@ services:
   # BANCO DE DADOS - ANALYTICS API
   # ==========================================================
   analytics-db:
+    profiles:
+      - analytics
     image: postgres:17
     container_name: analytics-db
     environment:
@@ -295,6 +299,8 @@ services:
   # CART API
   # ==========================================================
   cart-api:
+    profiles:
+      - cart
     build:
       context: ../cart-api
     container_name: cart-api
@@ -321,6 +327,8 @@ services:
   # Depende apenas do Consul e do próprio banco: a indisponibilidade
   # das origens não impede a subida e a coleta tenta novamente no próximo ciclo.
   analytics-api:
+    profiles:
+      - analytics
     build:
       context: ../analytics-api
     container_name: analytics-api
@@ -361,6 +369,8 @@ services:
   # ZIPKIN - DISTRIBUTED TRACING
   # ==========================================================
   zipkin:
+    profiles:
+      - observability
     image: openzipkin/zipkin:latest
     container_name: zipkin
     ports:
@@ -373,6 +383,8 @@ services:
   # PROMETHEUS - METRICS COLLECTION
   # ==========================================================
   prometheus:
+    profiles:
+      - observability
     image: prom/prometheus:latest
     container_name: prometheus
     ports:
@@ -391,6 +403,8 @@ services:
   # LOKI - LOG AGGREGATION
   # ==========================================================
   loki:
+    profiles:
+      - observability
     image: grafana/loki:3.7.0
     container_name: loki
     ports:
@@ -408,6 +422,8 @@ services:
   # GRAFANA ALLOY - LOG COLLECTION
   # ==========================================================
   alloy:
+    profiles:
+      - observability
     image: grafana/alloy:latest
     container_name: alloy
     ports:
@@ -431,6 +447,8 @@ services:
   # GRAFANA - OBSERVABILITY DASHBOARDS
   # ==========================================================
   grafana:
+    profiles:
+      - observability
     image: grafana/grafana:latest
     container_name: grafana
     ports:
