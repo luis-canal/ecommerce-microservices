@@ -1043,6 +1043,48 @@ As operações de escrita abaixo exigem JWT de administrador. O estoque precisa 
 | `GET /ws/inventory/{productId}/movements` | Consulta o histórico de movimentações do produto. |
 | `GET /ws/inventory/movements` | Consulta movimentações gerais. |
 
+#### Registrar produto no estoque
+
+**`POST /ws/inventory/{productId}/registration`**
+
+- Não recebe corpo. Envie a requisição sem JSON.
+- Em caso de sucesso, retorna `200 OK` com um `InventoryResponse` no corpo. Um novo registro começa com `quantityOnHand`, `quantityReserved` e `lowStockThreshold` iguais a zero. Se já existir um registro com o mesmo tipo do catálogo, a resposta contém o registro existente, sem criar outro.
+- `{productId}` deve ser um inteiro positivo. O tipo do produto é obtido no catálogo.
+
+| Status | Quando ocorre |
+|---|---|
+| `400 Bad Request` | `productId` inválido. Motivo gerado: `"productId deve ser positivo."` |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. Motivo gerado: `"Usuário sem permissão para esta operação."` |
+| `404 Not Found` | Produto não encontrado no catálogo. Motivo gerado: `"Produto não encontrado no product-api."` |
+| `409 Conflict` | O tipo do produto no catálogo difere do tipo já registrado no estoque. Motivo gerado: `"O tipo de produto informado diverge do tipo registrado no estoque."` |
+| `502 Bad Gateway` / `503 Service Unavailable` | Dados incompletos ou rejeição do catálogo (`502`), ou falha/configuração ausente na consulta ao catálogo (`503`). O motivo gerado depende da falha. |
+
+#### Registrar entrada física
+
+**`POST /ws/inventory/{productId}/entries`**
+
+O corpo é obrigatório; o DTO da operação tem os campos `quantity` e `reason`:
+
+```json
+{
+  "quantity": 5,
+  "reason": "Reposição de mercadoria"
+}
+```
+
+`quantity` é um inteiro positivo de 64 bits (`long`, mínimo `1`). Para `MULTI_UNIT`, o máximo aceito é `Long.MAX_VALUE - quantityOnHand` do saldo atual, para que o novo saldo não exceda o limite representável. Para `SINGLE_UNIT`, o saldo físico total não pode passar de `1`. `reason` é texto livre obrigatório, não pode ser vazio ou conter apenas espaços e aceita até 500 caracteres.
+
+Em caso de sucesso, retorna `200 OK` com um `InventoryResponse` atualizado no corpo. A entrada também é registrada no histórico como `ENTRY` com delta positivo.
+
+| Status | Quando ocorre | Motivo gerado |
+|---|---|---|
+| `400 Bad Request` | `productId` inválido; `quantity` ausente, inválido ou menor/igual a zero; `reason` ausente, em branco ou maior que 500 caracteres; ou a soma excede o limite de inteiro de 64 bits. | `"productId deve ser positivo."`, `"A quantidade deve ser maior que zero."`, `"O motivo é obrigatório e deve ter no máximo 500 caracteres."` ou `"A quantidade informada excede o limite suportado."`, conforme o caso. |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação."` |
+| `404 Not Found` | O estoque ainda não está registrado para o `productId`. | `"Estoque não encontrado para o produto {productId}."` |
+| `409 Conflict` | A entrada faria o saldo de um produto `SINGLE_UNIT` ultrapassar uma unidade. | `"Produtos SINGLE_UNIT podem ter no máximo uma unidade física."` |
+
+Os motivos acima são os lançados pela aplicação; eles não garantem que o corpo HTTP contenha esse texto. O formato efetivo do corpo de erro não é um contrato uniforme desta API e pode depender do serviço/Gateway; não dependa de um envelope JSON nem de texto exato. Falhas de autenticação do Gateway também podem retornar `401 Unauthorized` sem corpo.
+
 Exemplo de entrada ou saída manual:
 
 ```json
@@ -1126,7 +1168,11 @@ O cadastro é uma operação coordenada entre `product-api` e `inventory-api`; a
 
 As três chamadas administrativas usam o JWT de um administrador encaminhado pelo Gateway. Não envie cabeçalhos internos `X-User-*` nem tokens serviço-a-serviço do cliente.
 
-**Falhas e retentativas:** como as etapas não são atômicas, uma falha depois da primeira chamada pode deixar o produto criado sem registro de estoque ou sem saldo. O backend deve persistir o progresso do fluxo e tratar cada resposta antes de avançar. A chamada de registro do estoque pode ser repetida para o mesmo produto; já a criação do produto e a entrada de saldo não oferecem chave de idempotência. Se o resultado de uma dessas chamadas for desconhecido por timeout, não a repita cegamente: consulte o catálogo, o estoque e o histórico de movimentações antes de decidir como retomar, para evitar produto duplicado ou entrada duplicada.
+**Falhas e retentativas:** como as etapas não são atômicas, uma falha depois da primeira chamada pode deixar o produto criado sem registro de estoque ou sem saldo. O backend deve persistir o progresso do fluxo e tratar cada resposta antes de avançar.
+
+Não há suporte a chave de idempotência nesses POSTs. O registro do estoque é, na prática, repetível para o mesmo produto enquanto o tipo do catálogo não divergir: ele cria o registro se não existir e devolve o existente se já existir. Depois de um timeout nessa chamada, `GET /ws/inventory/{productId}` permite confirmar se há um registro (responde `200` se houver e `404` se não houver), mas não informa se esse registro foi criado por aquela tentativa ou já existia.
+
+A entrada (`entries`) não é idempotente: repetir a mesma requisição pode somar a quantidade novamente. Seu resultado após timeout é incerto. O saldo retornado por `GET /ws/inventory/{productId}` não identifica uma entrada específica, pois pode incluir outras operações concorrentes. O histórico em `GET /ws/inventory/{productId}/movements` permite procurar movimentações `ENTRY` por quantidade, motivo e horário, mas não recebe um identificador da requisição; portanto, não é uma confirmação confiável quando podem existir entradas iguais ou concorrentes. Não repita automaticamente uma entrada de resultado incerto. Reconcilie o caso com o histórico e o estado operacional antes de decidir se deve lançar uma nova entrada.
 
 O produto é criado ativo no catálogo antes de o estoque ser provisionado. Portanto, pode existir temporariamente um produto ativo sem estoque registrado; a disponibilidade comercial deve considerar tanto o status do catálogo quanto a disponibilidade retornada pelo Inventory API. Se o fluxo precisar garantir que nenhum produto seja exposto antes da conclusão do provisionamento, o sistema que o orquestra deve controlar essa publicação/ativação; o fluxo atual não fornece essa garantia atômica.
 
