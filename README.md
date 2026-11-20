@@ -476,82 +476,26 @@ O Consul configurado com `-dev` é para desenvolvimento local; ele não persiste
 
 ## Dados de demonstração (seed)
 
-> **Somente para o ambiente local de demonstração.** Nunca execute o seed em ambiente real. As contas criadas usam senhas conhecidas e os pedidos são fictícios.
+> **Somente ambiente local de demonstração.** Os dados fictícios são carregados automaticamente pelo Flyway. Não use as credenciais de demonstração em ambientes reais.
 
-O seed (`scripts/demo-seed/`) popula a loja com clientes, catálogo de chimarrão, estoque, cerca de 130 pedidos distribuídos nos últimos 90 dias e carrinhos, para demonstrar catálogo, carrinho, pedidos e analytics com volume. O Stripe não é chamado. Roda em um container próprio na rede do Compose. O host precisa apenas de Docker e funciona igual no Git Bash e no PowerShell.
+Ao recriar os bancos PostgreSQL vazios, cada microsserviço aplica suas migrações na inicialização:
 
-### Pré-requisitos
+- `auth-api`: 20 clientes de teste em `V4__PopulateDemoUsers.sql`. Todos usam a senha exclusiva `Demo@2026`.
+- `product-api`: 30 produtos em `V8__PopulateDemoProducts.sql`, associados às categorias da V3. Os exemplos da V5 são desativados.
+- `inventory-api`: saldos, entradas, reservas e movimentações em `V2__PopulateDemoInventory.sql`.
+- `order-api`: pedidos confirmados, cancelados e expirados em `V4__PopulateDemoOrders.sql`.
+- `cart-api`: seis carrinhos em `V2__PopulateDemoCarts.sql`.
 
-A stack precisa estar no ar com carrinho e analytics:
-
-```bash
-docker compose --parallel 1 -f docker/docker-compose.yml --profile cart --profile analytics up --build -d
-```
-
-### Como rodar
-
-Defina as credenciais do administrador **no ambiente do shell**: o seed usa o administrador existente `admin@admin.dev`, cuja senha está em [API.md](./API.md#login-com-usuário-administrador). Nenhuma senha é lida de arquivo. Sem essas variáveis, o seed falha com uma mensagem explicativa.
-
-Git Bash:
-
-```bash
-export SEED_ADMIN_EMAIL=admin@admin.dev
-export SEED_ADMIN_PASSWORD='<senha do admin>'
-docker compose -f docker/docker-compose.yml --profile seed run --rm demo-seed apply
-```
-
-PowerShell:
-
-```powershell
-$env:SEED_ADMIN_EMAIL = "admin@admin.dev"
-$env:SEED_ADMIN_PASSWORD = "<senha do admin>"
-docker compose -f docker/docker-compose.yml --profile seed run --rm demo-seed apply
-```
-
-| Comando | Efeito |
-|---|---|
-| `apply` | Cria ou completa todos os dados. Idempotente: rodar de novo não duplica nada. Leva cerca de 12 minutos, porque espera o TTL de 10 minutos das reservas dos pedidos que devem expirar. |
-| `status` | Mostra os totais no banco e confere com o analytics. |
-| `pending` | Cria 3 pedidos `PENDING_PAYMENT` na hora, para mostrar pedidos pendentes na apresentação. Eles expiram após 10 minutos, como qualquer reserva. |
-| `help` (ou nenhum) | Mostra a ajuda; nada é executado. |
-
-O serviço `demo-seed` só existe no profile `seed` e não executa nada sem subcomando, portanto nunca roda junto com `docker compose up`.
-
-| Variável | Obrigatória | Descrição |
-|---|---|---|
-| `SEED_ADMIN_EMAIL` | Sim | E-mail do administrador existente (`admin@admin.dev`). |
-| `SEED_ADMIN_PASSWORD` | Sim | Senha desse administrador. |
-| `SEED_CUSTOMER_PASSWORD` | Não | Senha dos clientes de demonstração. Padrão: `Demo@2026`, **valor público, exclusivo do ambiente de demonstração; nunca use em ambiente real**. |
-
-### O que é criado
-
-- **Usuários:** 20 clientes com nomes brasileiros, distribuídos pelas cinco regiões (Sul, Sudeste, Centro-Oeste, Nordeste e Norte), com e-mails fictícios em `@demo.example.com`. O administrador não é criado: usa-se o existente.
-- **Catálogo:** 30 produtos de chimarrão nas 7 categorias da migração V3 (erva-mate, cuias, bombas, térmicas, mateiras, porta-erva e acessórios). As cuias são peças únicas (`SINGLE_UNIT`). Dois produtos ficam inativos (descontinuados), alguns ficam com estoque baixo e as cuias vendidas ficam esgotadas.
-- **Produtos de exemplo da V5:** os 24 produtos inseridos pela migração V5 são **desativados** por `PATCH /ws/products/{id}/status`. É reversível: reative cada um com `{"active": true}` no mesmo endpoint, usando um JWT de administrador. Os IDs aparecem em `GET /ws/products?status=INACTIVE`.
-- **Estoque:** registro e entrada inicial de cada produto (unidades vendidas + saldo final desejado) e limite de estoque baixo.
-- **Pedidos:** cerca de 130 nos últimos 90 dias, a maioria `CONFIRMED`, alguns `CANCELLED` (cancelamento administrativo) e `EXPIRED` (TTL da reserva). Têm de 1 a 4 itens e frete regional calculado pelo `order-api`, com picos na Semana Farroupilha e no início da Black November. A confirmação usa a rota interna do `order-api` com a credencial serviço-a-serviço, lida do volume de segredos montado somente leitura, mantida só em memória e nunca registrada.
-- **Carrinhos:** 6 clientes com itens no carrinho.
-
-Os dados ficam em `scripts/demo-seed/data/products.json` e `scripts/demo-seed/data/customers.json`, separados do código. O nome do produto é a chave usada para não duplicar. Alterar esses arquivos não exige rebuild da imagem.
-
-### Datas passadas e analytics
-
-Os pedidos são criados pelas APIs com a data atual. Ao final, o seed faz um único `UPDATE` em `db_order` (`tb_order`, a única tabela do serviço com datas de pedido; os itens não têm datas) para distribuir `order_date`, `confirmed_at`, `cancelled_at` e `reservation_expires_at` nos últimos 90 dias. Em seguida, dispara a coleta do analytics. As datas são relativas ao dia da execução: rodar `apply` em outro dia redistribui os mesmos pedidos na nova janela.
-
-- `updated_at` recebe sempre o **horário atual**. O analytics coleta por `updated_at` (cursor incremental) e **ignora versões com `updated_at` mais antigo do que a já coletada**. Por isso, ajustar `updated_at` para o passado não tem efeito no analytics. Se a coleta já tiver rodado antes do ajuste, nada precisa ser feito: a coleta seguinte relê os pedidos e move as vendas para as datas corretas.
-- **Limitação:** as movimentações de estoque (entradas e baixas por confirmação) ficam com a data do dia em que o seed rodou. O coletor de movimentações usa uma janela por cursor, então elas aparecem concentradas nesse dia no painel de movimentações.
-
-### Como limpar ou recriar
-
-O `apply` é idempotente e pode ser repetido. Para recriar tudo do zero, apague os volumes e suba de novo:
+Para recriar os dados em bancos vazios:
 
 ```bash
 docker compose -f docker/docker-compose.yml --profile cart --profile analytics down -v
 docker compose --parallel 1 -f docker/docker-compose.yml --profile cart --profile analytics up --build -d
-docker compose -f docker/docker-compose.yml --profile seed run --rm demo-seed apply
 ```
 
-> **Atenção:** `down -v` apaga **todos** os volumes do Compose: todos os bancos (usuários, produtos, estoque, pedidos, carrinhos, analytics, pagamentos) e as credenciais internas geradas, não apenas os dados do seed.
+> **Atenção:** `down -v` remove todos os volumes PostgreSQL e, consequentemente, todos os dados de negócio e credenciais locais. Não apague os volumes em um ambiente real.
+
+As migrações usam IDs fixos coordenados entre os bancos e avançam as sequences. Elas falham explicitamente se encontrar IDs ou e-mails reservados ao demo, sem apagar ou sobrescrever dados existentes.
 
 ## Executando localmente
 
@@ -736,9 +680,6 @@ ecommerce-microservices/
 │
 ├── gateway-api/
 │   └── Gateway e roteamento das requisições
-│
-├── scripts/demo-seed/
-│   └── Seed de dados do ambiente de demonstração (somente local)
 │
 ├── start_consul.bat
 │   └── Inicialização e configuração do Consul no Windows

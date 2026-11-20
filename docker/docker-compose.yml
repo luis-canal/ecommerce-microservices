@@ -425,30 +425,6 @@ services:
     restart: unless-stopped
 
   # ==========================================================
-  # SEED DE DEMONSTRAÇÃO (somente ambiente local de demo)
-  # ==========================================================
-  # Nunca sobe com o restante da stack: exige o profile "seed" e um subcomando explícito.
-  #   docker compose -f docker/docker-compose.yml --profile seed run --rm demo-seed apply
-  # Sem subcomando, apenas mostra a ajuda. Não recebe env_file (sem credenciais de storage/Stripe).
-  # Credenciais do admin vêm do ambiente do shell; o volume de segredos é montado somente leitura
-  # e o seed lê apenas a credencial serviço-a-serviço, em memória, para confirmar pedidos.
-  demo-seed:
-    profiles:
-      - seed
-    build:
-      context: ../scripts/demo-seed
-    environment:
-      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
-      SEED_CUSTOMER_PASSWORD: ${SEED_CUSTOMER_PASSWORD:-}
-    volumes:
-      - ../scripts/demo-seed:/seed:ro
-      - auth_internal_secret:/run/secrets:ro
-    networks:
-      - backend
-    restart: "no"
-
-  # ==========================================================
   # ZIPKIN - DISTRIBUTED TRACING
   # ==========================================================
   zipkin:
