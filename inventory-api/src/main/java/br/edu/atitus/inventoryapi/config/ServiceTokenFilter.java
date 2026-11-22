@@ -43,7 +43,8 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
         }
 
         if (serviceToken == null || serviceToken.isBlank()) {
-            response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), "Autenticação serviço-a-serviço não configurada.");
+            writeError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                    "Autenticação serviço-a-serviço temporariamente indisponível.");
             return;
         }
 
@@ -52,11 +53,18 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
                 serviceToken.getBytes(StandardCharsets.UTF_8),
                 suppliedToken.getBytes(StandardCharsets.UTF_8)
         )) {
-            response.sendError(HttpStatus.UNAUTHORIZED.value(), "Credencial de serviço inválida.");
+            writeError(response, HttpStatus.UNAUTHORIZED, "Credencial de serviço inválida.");
             return;
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void writeError(HttpServletResponse response, HttpStatus status, String message) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType("text/plain;charset=UTF-8");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.getWriter().write(message);
     }
 
     private boolean isAdminReservationRead(HttpServletRequest request) {

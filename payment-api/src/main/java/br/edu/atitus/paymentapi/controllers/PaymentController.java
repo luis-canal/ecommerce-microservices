@@ -7,7 +7,7 @@ import br.edu.atitus.paymentapi.services.CheckoutService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -53,9 +53,11 @@ public class PaymentController {
     }
 
     @ExceptionHandler(OrderApiException.class)
-    public ProblemDetail handleOrderApiFailure(OrderApiException exception) {
+    public ResponseEntity<String> handleOrderApiFailure(OrderApiException exception) {
         log.warn("Falha ao consultar o order-api: {}", exception.getMessage());
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, "Serviço de pedidos indisponível.");
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                .body("Serviço de pedidos indisponível.");
     }
 
     private void requireCustomer(Integer userType) {

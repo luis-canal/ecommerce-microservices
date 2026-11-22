@@ -4,12 +4,29 @@ Guia para integração com os fluxos de autenticação, catálogo e estoque dest
 
 ## Convenções
 
-- Envie e receba JSON com `Content-Type: application/json` e `Accept: application/json`, salvo respostas sem corpo.
+- Envie e receba JSON com `Content-Type: application/json` e `Accept: application/json`, salvo respostas sem corpo. Respostas de erro usam `Content-Type: text/plain; charset=UTF-8`.
 - IDs são inteiros de 64 bits (`Long` no servidor); preços são números decimais.
-- Os exemplos de erro refletem o comportamento atual dos serviços. As APIs **não** têm um envelope de erro uniforme: vários endpoints retornam texto simples, e o Gateway pode responder sem corpo.
+- Erros retornam uma mensagem em texto simples, específica para a causa sempre que possível. O Gateway preserva o status e o corpo de erro dos serviços; uma requisição protegida sem JWT válido recebe `401 Unauthorized` com `"Token ausente, inválido ou revogado."`. Falhas inesperadas retornam uma mensagem segura, sem detalhes técnicos.
 - As rotas `/ws/**` são protegidas pelo Gateway. Envie `Authorization: Bearer <token>`; **não** envie manualmente os cabeçalhos internos `X-User-Id`, `X-User-Type` ou `X-User-Email`. O Gateway os remove da requisição recebida do cliente e propaga os valores derivados do JWT.
 - Tokens JWT expiram em 24 horas. O logout revoga o token até a expiração.
 - O tipo de usuário de cadastro público é sempre `Common`. A conta administradora é provisionada no banco; não há rota separada de login administrativo.
+
+### Formato das falhas
+
+Erros são retornados como texto simples UTF-8, sem envelope JSON. O Gateway preserva o status e a mensagem enviados pelo serviço. Exemplos representativos:
+
+| Status | Cenário | Corpo |
+|---|---|---|
+| `400 Bad Request` | Quantidade de estoque menor ou igual a zero. | `A quantidade deve ser maior que zero.` |
+| `400 Bad Request` | Preço de produto menor ou igual a zero. | `O preço deve ser maior que zero.` |
+| `401 Unauthorized` | JWT ausente, inválido ou revogado em rota protegida. | `Token ausente, inválido ou revogado.` |
+| `403 Forbidden` | Usuário autenticado sem permissão. | `Usuário sem permissão para esta operação.` |
+| `404 Not Found` | Produto não encontrado. | `Produto não encontrado.` |
+| `404 Not Found` | Estoque não cadastrado para o produto. | `Estoque não encontrado para o produto {productId}.` |
+| `409 Conflict` | E-mail já cadastrado. | `Já existe um usuário com este e-mail.` |
+| `500 Internal Server Error` | Falha inesperada. | `Ocorreu um erro interno. Tente novamente mais tarde.` |
+
+Falhas inesperadas são registradas no serviço e não incluem mensagens de exceções, infraestrutura ou credenciais na resposta.
 
 ## Fluxo recomendado
 
@@ -68,8 +85,9 @@ Retorna o usuário criado. A senha não é serializada.
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `400 Bad Request` | Campos inválidos ou e-mail já cadastrado. | ` "E-mail informado inválido" ` (texto simples) |
-| `5xx` | Falha não tratada no serviço ou persistência. | O corpo depende da camada que gerou o erro. |
+| `400 Bad Request` | Nome, e-mail ou senha inválidos. | `"O e-mail informado é inválido."` |
+| `409 Conflict` | E-mail já cadastrado. | `"Já existe um usuário com este e-mail."` |
+| `5xx` | Falha inesperada no serviço ou persistência. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Login de usuário
 
@@ -115,9 +133,9 @@ Autentica por e-mail e senha e emite um JWT. Use esta rota também para autentic
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `401 Unauthorized` | E-mail ou senha não autenticam. | ` "Bad credentials" ` (texto simples; a mensagem pode variar) |
-| `400 Bad Request` | Corpo inválido ou erro genérico tratado pelo controller. | Texto simples com a mensagem retornada pelo serviço. |
-| `5xx` | Falha não tratada fora dos handlers do controller. | O corpo depende da camada que gerou o erro. |
+| `400 Bad Request` | Corpo da requisição inválido. | `"Corpo da requisição inválido."` |
+| `401 Unauthorized` | E-mail ou senha não autenticam. | `"E-mail ou senha inválidos."` |
+| `5xx` | Falha inesperada no serviço ou persistência. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Login com usuário administrador
 
@@ -165,8 +183,20 @@ Sem corpo.
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `401 Unauthorized` | Header ausente/malformado, JWT inválido ou expirado. | Sem corpo. |
-| `5xx` | Falha ao persistir a revogação. | O corpo depende da camada que gerou o erro. |
+| `401 Unauthorized` | Header ausente/malformado, JWT inválido ou expirado. | `"Token Bearer ausente ou inválido."` |
+| `5xx` | Falha ao persistir a revogação. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
+
+## Câmbio
+
+**`GET /currencies?source={moeda}&target={moeda}`**
+
+Consulta a taxa de conversão entre dois códigos de moeda. Os parâmetros `source` e `target` são obrigatórios.
+
+| Status | Quando ocorre | Exemplo de resposta |
+|---|---|---|
+| `400 Bad Request` | Código de moeda vazio ou parâmetro obrigatório ausente. | `"Código de moeda inválido."` ou `"Parâmetro obrigatório ausente: source."` |
+| `404 Not Found` | Não há cotação disponível para a moeda informada. | `"Cotação não encontrada para a moeda informada."` |
+| `500 Internal Server Error` | Falha inesperada. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ## Produtos
 
@@ -250,9 +280,9 @@ Retorna uma página Spring Data. `price` é o valor original e `convertedPrice` 
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `400 Bad Request` | Parâmetro inválido, faixa de preço invertida/negativa ou campo de ordenação não suportado. | `"O preço mínimo não pode ser superior ao preço máximo"` (texto simples) |
+| `400 Bad Request` | Parâmetro inválido, faixa de preço invertida/negativa ou campo de ordenação não suportado. | `"O preço mínimo não pode ser superior ao preço máximo"` ou `"Parâmetro inválido: minPrice."` |
 | `503 Service Unavailable` | Não foi possível obter conversão para BRL necessária aos filtros ou à ordenação por preço. | `"Não foi possível converter os preços para BRL"` (texto simples) |
-| `500 Internal Server Error` | Outra falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+| `500 Internal Server Error` | Outra falha inesperada no serviço. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Buscar produto por ID
 
@@ -316,9 +346,9 @@ Mesmo formato do item em [listar produtos](#listar-pesquisar-filtrar-e-ordenar-p
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `400 Bad Request` | ID não numérico. | `"Parâmetro inválido: id"` (texto simples) |
-| `404 Not Found` | Produto não existe, está inativo ou pertence a categoria/subcategoria inativa. | `"Produto não encontrado"` (texto simples) |
-| `500 Internal Server Error` | Falha inesperada. A ausência de `targetCurrency` também pode cair no handler genérico atual e ser reportada como `500`. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+| `400 Bad Request` | ID ou parâmetro inválido, ou `targetCurrency` ausente. | `"Parâmetro inválido: id."` ou `"Parâmetro obrigatório ausente: targetCurrency."` |
+| `404 Not Found` | Produto não existe, está inativo ou pertence a categoria/subcategoria inativa. | `"Produto não encontrado."` |
+| `500 Internal Server Error` | Falha inesperada. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Criar produto
 
@@ -398,10 +428,10 @@ Retorna a entidade de produto criada, incluindo a associação `subcategory`. O 
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `400 Bad Request` | Campo obrigatório inválido, preço não positivo ou subcategoria inexistente/inativa. | `"Nome inválido"` (texto simples; mensagem varia por campo) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. O Gateway pode responder sem corpo. | Sem corpo no Gateway. |
-| `403 Forbidden` | Token válido de usuário que não é administrador. | `"Usuário sem permissão para esta operação"` (texto simples) |
-| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+| `400 Bad Request` | Campo obrigatório inválido, preço não positivo ou subcategoria inexistente/inativa. | `"Nome inválido"`, `"O preço deve ser maior que zero."` ou `"A subcategoria informada não existe ou está inativa"` |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
+| `403 Forbidden` | Token válido de usuário que não é administrador. | `"Usuário sem permissão para esta operação"` |
+| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Editar produto
 
@@ -448,11 +478,11 @@ Retorna a entidade de produto atualizada, no formato demonstrado em [criar produ
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `400 Bad Request` | Campo obrigatório inválido ou subcategoria inválida/inativa. | `"Preço inválido"` (texto simples; mensagem varia por campo) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `400 Bad Request` | Campo obrigatório inválido ou subcategoria inválida/inativa. | `"O preço deve ser maior que zero."` ou `"A subcategoria informada não existe ou está inativa"` |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
-| `404 Not Found` | Produto não encontrado. | `"Produto não encontrado"` (texto simples) |
-| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+| `404 Not Found` | Produto não encontrado. | `"Produto não encontrado."` |
+| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Ativar ou desativar produto
 
@@ -485,12 +515,12 @@ Retorna a entidade do produto com `active` atualizado. Exemplo: o mesmo objeto d
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `400 Bad Request` | `active` ausente ou nulo. | `"Status inválido"` (texto simples) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `400 Bad Request` | `active` ausente ou nulo. | `"Status inválido"` |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
-| `404 Not Found` | Produto não encontrado. | `"Produto não encontrado"` |
+| `404 Not Found` | Produto não encontrado. | `"Produto não encontrado."` |
 | `409 Conflict` | Tentativa de reativar com categoria ou subcategoria inativa. | `"Não é possível reativar um produto com categoria ou subcategoria inativa"` |
-| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Listar produtos (administrador), incluindo inativos
 
@@ -566,10 +596,10 @@ Mesmo formato de página de `GET /products`. Exemplo de item de produto inativo:
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | `status` fora de `ACTIVE`/`INACTIVE`/`ALL`, outro parâmetro com tipo inválido, faixa de preço inválida ou ordenação não suportada. | `"Parâmetro inválido: status"` (texto simples) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa (qualquer valor de `status`). | `"Usuário sem permissão para esta operação"` |
 | `503 Service Unavailable` | Conversão para BRL indisponível para filtro/ordenação por preço. | `"Não foi possível converter os preços para BRL"` |
-| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Buscar produto por ID (administrador), incluindo inativo
 
@@ -598,10 +628,10 @@ Authorization: Bearer <jwt>
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | ID não numérico. | `"Parâmetro inválido: id"` (texto simples) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
-| `404 Not Found` | Produto não existe. | `"Produto não encontrado"` (texto simples) |
-| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ops!!! Algo deu errado. - <mensagem>"` (texto simples) |
+| `404 Not Found` | Produto não existe. | `"Produto não encontrado."` |
+| `500 Internal Server Error` | Falha inesperada no serviço. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Imagens do produto
 
@@ -646,7 +676,7 @@ curl -X POST http://localhost:8080/ws/products/17/images \
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | Campo `file` ausente ou vazio, ou conteúdo que não é JPEG/PNG/WebP. | `"Formato de imagem não suportado. Envie JPEG, PNG ou WebP."` |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `404 Not Found` | Produto ou imagem não encontrados (inclusive imagem de outro produto). | `"Produto não encontrado."` / `"Imagem não encontrada."` |
 | `409 Conflict` | O produto já tem o número máximo de imagens. | `"Limite de 8 imagens por produto atingido."` |
@@ -704,7 +734,7 @@ Lista categorias ativas, ordenadas por nome.
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `500 Internal Server Error` | Falha inesperada ao consultar categorias. | O corpo depende do tratamento padrão do serviço. |
+| `500 Internal Server Error` | Falha inesperada ao consultar categorias. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Listar subcategorias de uma categoria
 
@@ -744,8 +774,8 @@ Lista subcategorias ativas, ordenadas por nome. Se a categoria não existir ou e
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | `id` não numérico. | `"Parâmetro inválido: id"` (texto simples) |
-| `404 Not Found` | Categoria inexistente ou inativa. | Sem corpo. |
-| `500 Internal Server Error` | Falha inesperada ao consultar. | O corpo depende do tratamento padrão do serviço. |
+| `404 Not Found` | Categoria inexistente ou inativa. | `"Categoria não encontrada ou inativa."` |
+| `500 Internal Server Error` | Falha inesperada ao consultar. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ### Criar categoria
 
@@ -787,7 +817,7 @@ Cria uma categoria ativa. O `slug` é gerado a partir do nome.
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | Nome vazio ou com mais de 180 caracteres. | `"Nome inválido"` (texto simples) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `409 Conflict` | Nome/slug já utilizado. | `"Já existe uma categoria com esse nome ou slug"` |
 
@@ -823,7 +853,7 @@ Retorna o mesmo formato de objeto da resposta de [criar categoria](#criar-catego
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | Nome inválido. | `"Nome inválido"` |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `404 Not Found` | Categoria não encontrada. | `"Categoria não encontrada"` (texto simples) |
 | `409 Conflict` | Nome/slug já utilizado. | `"Já existe uma categoria com esse nome ou slug"` |
@@ -860,7 +890,7 @@ Retorna o objeto de categoria com `active` atualizado.
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | `active` ausente ou nulo. | `"Status inválido"` |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `404 Not Found` | Categoria não encontrada. | `"Categoria não encontrada"` |
 
@@ -908,7 +938,7 @@ Cria uma subcategoria ativa associada a uma categoria existente e ativa. O `slug
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | Nome ou categoria inválidos; categoria inexistente/inativa. | `"A categoria informada não existe ou está inativa"` (texto simples) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `409 Conflict` | Nome/slug já utilizado na categoria. | `"Já existe uma subcategoria com esse nome ou slug nesta categoria"` |
 
@@ -945,8 +975,8 @@ Retorna o mesmo formato de objeto da resposta de [criar subcategoria](#criar-sub
 
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
-| `400 Bad Request` | Requisição, nome ou categoria inválidos; categoria inexistente/inativa. | `"Requisição inválida"` (texto simples; mensagem varia) |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `400 Bad Request` | Requisição, nome ou categoria inválidos; categoria inexistente/inativa. | `"Nome inválido"` ou `"A categoria informada não existe ou está inativa"` |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `404 Not Found` | Subcategoria não encontrada. | `"Subcategoria não encontrada"` |
 | `409 Conflict` | Nome/slug já utilizado na categoria. | `"Já existe uma subcategoria com esse nome ou slug nesta categoria"` |
@@ -983,7 +1013,7 @@ Retorna o objeto de subcategoria com `active` atualizado.
 | Status | Quando ocorre | Exemplo de corpo atual |
 |---|---|---|
 | `400 Bad Request` | `active` ausente ou nulo. | `"Status inválido"` |
-| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | Sem corpo no Gateway. |
+| `401 Unauthorized` | Token Bearer ausente, inválido ou revogado. | `"Token ausente, inválido ou revogado."` |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação"` |
 | `404 Not Found` | Subcategoria não encontrada. | `"Subcategoria não encontrada"` |
 | `409 Conflict` | Tentativa de ativar sob categoria inativa. | `"Não é possível ativar uma subcategoria de uma categoria inativa"` |
@@ -1027,7 +1057,7 @@ Consulta em lote:
 }
 ```
 
-IDs duplicados, inválidos, lista vazia ou mais de 500 IDs resultam em `400 Bad Request`; se algum estoque não estiver cadastrado, a resposta é `404 Not Found`.
+IDs duplicados, inválidos, lista vazia ou mais de 500 IDs resultam em `400 Bad Request` com uma mensagem como `"A lista de productIds não pode conter duplicados."`; se algum estoque não estiver cadastrado, a resposta é `404 Not Found` com `"Estoque não encontrado para: [101, 102]"`.
 
 ### Administrar quantidades
 
@@ -1051,13 +1081,13 @@ As operações de escrita abaixo exigem JWT de administrador. O estoque precisa 
 - Em caso de sucesso, retorna `200 OK` com um `InventoryResponse` no corpo. Um novo registro começa com `quantityOnHand`, `quantityReserved` e `lowStockThreshold` iguais a zero. Se já existir um registro com o mesmo tipo do catálogo, a resposta contém o registro existente, sem criar outro.
 - `{productId}` deve ser um inteiro positivo. O tipo do produto é obtido no catálogo.
 
-| Status | Quando ocorre |
-|---|---|
-| `400 Bad Request` | `productId` inválido. Motivo gerado: `"productId deve ser positivo."` |
-| `403 Forbidden` | Usuário autenticado sem permissão administrativa. Motivo gerado: `"Usuário sem permissão para esta operação."` |
-| `404 Not Found` | Produto não encontrado no catálogo. Motivo gerado: `"Produto não encontrado no product-api."` |
-| `409 Conflict` | O tipo do produto no catálogo difere do tipo já registrado no estoque. Motivo gerado: `"O tipo de produto informado diverge do tipo registrado no estoque."` |
-| `502 Bad Gateway` / `503 Service Unavailable` | Dados incompletos ou rejeição do catálogo (`502`), ou falha/configuração ausente na consulta ao catálogo (`503`). O motivo gerado depende da falha. |
+| Status | Quando ocorre | Exemplo de resposta |
+|---|---|---|
+| `400 Bad Request` | `productId` inválido. | `"productId deve ser positivo."` |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação."` |
+| `404 Not Found` | Produto não encontrado no catálogo. | `"Produto não encontrado."` |
+| `409 Conflict` | O tipo do produto no catálogo difere do tipo já registrado no estoque. | `"O tipo de produto informado diverge do tipo registrado no estoque."` |
+| `502 Bad Gateway` / `503 Service Unavailable` | Dados incompletos ou rejeição do catálogo (`502`), ou falha/configuração ausente na consulta ao catálogo (`503`). | Mensagem segura indicando a falha na consulta ao catálogo. |
 
 #### Registrar entrada física
 
@@ -1076,14 +1106,14 @@ O corpo é obrigatório; o DTO da operação tem os campos `quantity` e `reason`
 
 Em caso de sucesso, retorna `200 OK` com um `InventoryResponse` atualizado no corpo. A entrada também é registrada no histórico como `ENTRY` com delta positivo.
 
-| Status | Quando ocorre | Motivo gerado |
+| Status | Quando ocorre | Exemplo de resposta |
 |---|---|---|
 | `400 Bad Request` | `productId` inválido; `quantity` ausente, inválido ou menor/igual a zero; `reason` ausente, em branco ou maior que 500 caracteres; ou a soma excede o limite de inteiro de 64 bits. | `"productId deve ser positivo."`, `"A quantidade deve ser maior que zero."`, `"O motivo é obrigatório e deve ter no máximo 500 caracteres."` ou `"A quantidade informada excede o limite suportado."`, conforme o caso. |
 | `403 Forbidden` | Usuário autenticado sem permissão administrativa. | `"Usuário sem permissão para esta operação."` |
 | `404 Not Found` | O estoque ainda não está registrado para o `productId`. | `"Estoque não encontrado para o produto {productId}."` |
 | `409 Conflict` | A entrada faria o saldo de um produto `SINGLE_UNIT` ultrapassar uma unidade. | `"Produtos SINGLE_UNIT podem ter no máximo uma unidade física."` |
 
-Os motivos acima são os lançados pela aplicação; eles não garantem que o corpo HTTP contenha esse texto. O formato efetivo do corpo de erro não é um contrato uniforme desta API e pode depender do serviço/Gateway; não dependa de um envelope JSON nem de texto exato. Falhas de autenticação do Gateway também podem retornar `401 Unauthorized` sem corpo.
+Os corpos de erro são texto simples UTF-8. Os exemplos acima mostram mensagens efetivamente retornadas; o Gateway mantém o status e o corpo enviados pelo serviço. Requisições sem JWT válido recebem `401 Unauthorized` com `"Token ausente, inválido ou revogado."`.
 
 Exemplo de entrada ou saída manual:
 
@@ -1228,13 +1258,13 @@ Retorna o pedido com endereço, itens e dados de catálogo persistidos, valores 
 
 **Erros comuns**
 
-| Status | Quando ocorre |
-|---|---|
-| `400 Bad Request` | Lista vazia, mais de 100 itens, IDs ou quantidades inválidas, IDs duplicados, endereço/UF/CEP inválido ou chave de idempotência maior que 128 caracteres. |
-| `403 Forbidden` | Usuário autenticado sem perfil de cliente. |
-| `409 Conflict` | Estoque insuficiente, chave repetida com conteúdo diferente ou reserva não ativa. O pedido provisório é removido nas rejeições definitivas de estoque. |
-| `422 Unprocessable Entity` | Produto não encontrado ou inativo no catálogo, produto sem estoque cadastrado no Inventory API (`"Produto sem estoque cadastrado no inventário."`) ou reserva recusada pelo Inventory API como inválida (`"Reserva de estoque recusada pelo inventário."`). Nos casos de estoque, o pedido provisório é removido. |
-| `502 Bad Gateway` / `503 Service Unavailable` | Falha de integração. Se o resultado da reserva for incerto, repita a mesma requisição com a mesma `Idempotency-Key`; o pedido fica recuperável e a operação de reserva é idempotente por `orderId`. |
+| Status | Quando ocorre | Exemplo de resposta |
+|---|---|---|
+| `400 Bad Request` | Lista vazia, mais de 100 itens, IDs ou quantidades inválidas, IDs duplicados, endereço/UF/CEP inválido ou chave de idempotência maior que 128 caracteres. | `"O pedido deve conter ao menos um item."`, `"Cada item deve ter productId e quantity positivos."`, `"CEP inválido."` ou `"Rua do endereço de entrega é obrigatório e deve respeitar o limite de tamanho."` |
+| `403 Forbidden` | Usuário autenticado sem perfil de cliente. | `"Somente clientes podem acessar pedidos."` |
+| `409 Conflict` | Estoque insuficiente, chave repetida com conteúdo diferente ou reserva não ativa. O pedido provisório é removido nas rejeições definitivas de estoque. | `"Estoque indisponível para o pedido."`, `"Idempotency-Key já foi usado com conteúdo diferente."` ou `"Reserva de estoque não pode ser confirmada."` |
+| `422 Unprocessable Entity` | Produto não encontrado ou inativo no catálogo, produto sem estoque cadastrado no Inventory API (`"Produto sem estoque cadastrado no inventário."`) ou reserva recusada pelo Inventory API como inválida (`"Reserva de estoque recusada pelo inventário."`). Nos casos de estoque, o pedido provisório é removido. | `"Produto indisponível no catálogo: {productId}"`, `"Produto sem estoque cadastrado no inventário."` ou `"Reserva de estoque recusada pelo inventário."` |
+| `502 Bad Gateway` / `503 Service Unavailable` | Falha de integração. Se o resultado da reserva for incerto, repita a mesma requisição com a mesma `Idempotency-Key`; o pedido fica recuperável e a operação de reserva é idempotente por `orderId`. | `"Falha ao consultar o catálogo."` ou `"Catálogo indisponível."` |
 
 Sem `Idempotency-Key`, repetir uma requisição após timeout pode criar outro pedido. Clientes devem gerar uma chave por intenção de compra e reutilizá-la em todas as tentativas daquela mesma operação. A chave considera os itens e o endereço; reutilizá-la com qualquer conteúdo diferente resulta em conflito.
 
@@ -1391,6 +1421,8 @@ O sucesso retorna `200 OK` com o carrinho atualizado. Item inexistente retorna `
 - **`DELETE /ws/cart/items`** remove todos os produtos e mantém o registro persistente do carrinho; retorna `204 No Content`.
 
 Quantidade inválida ou tentativa de exceder o estoque retorna `400 Bad Request` ou `409 Conflict`, respectivamente. Falhas ao consultar os serviços dependentes retornam erro `502`/`503`, sem usar preços ou disponibilidade em cache como fallback.
+
+Exemplos de mensagens: quantidade zero retorna `400` com `"A quantidade deve ser maior que zero."`; produto ausente no carrinho retorna `404` com `"Produto não encontrado no carrinho."`; disponibilidade insuficiente retorna `409` com `"A quantidade desejada excede a disponibilidade atual do estoque."`. Falhas de consulta retornam mensagens seguras como `"Não foi possível consultar o product-api."` ou `"Não foi possível consultar o inventory-api."`.
 
 ### Checkout do carrinho
 
@@ -1746,12 +1778,12 @@ Executa a coleta imediatamente, sem aguardar o próximo ciclo, por exemplo depoi
 
 ### Erros comuns
 
-| Status | Quando ocorre |
-|---|---|
-| `400 Bad Request` | Data inválida, `from` posterior a `to`, período maior que 5 anos, UF ou região inválida, `granularity` ou `rankBy` desconhecido, `limit`/`size` menor que 1 ou `page` negativa. |
-| `401 Unauthorized` | Requisição sem JWT válido ou que não passou pelo Gateway. |
-| `403 Forbidden` | Usuário autenticado sem perfil de administrador. |
-| `500 Internal Server Error` | O Analytics API está indisponível. Checkout e pedidos não são afetados. |
+| Status | Quando ocorre | Exemplo de resposta |
+|---|---|---|
+| `400 Bad Request` | Data inválida, `from` posterior a `to`, período maior que 5 anos, UF ou região inválida, `granularity` ou `rankBy` desconhecido, `limit`/`size` menor que 1 ou `page` negativa. | `"O parâmetro 'from' deve ser anterior ou igual a 'to'."`, `"O período máximo de consulta é de 5 anos."` ou `"Região inválida: ..."` |
+| `401 Unauthorized` | Requisição sem JWT válido ou que não passou pelo Gateway. | `"Token ausente, inválido ou revogado."` |
+| `403 Forbidden` | Usuário autenticado sem perfil de administrador. | `"Usuário sem permissão para esta operação."` |
+| `500 Internal Server Error` | Falha inesperada ao consultar Analytics. Checkout e pedidos não são afetados. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
 ## Pagamentos
 
@@ -1801,14 +1833,14 @@ Comportamento:
 - Se já existe um pagamento aberto para o pedido, devolve o mesmo `checkoutUrl`, sem criar outra sessão. Se esse pagamento aberto não serve mais (pedido não mais pendente, ou reserva com menos de `payment.min-reservation-seconds` restantes), a sessão é expirada no Stripe, o pagamento passa a `CANCELLED` e as regras acima são reavaliadas; com a reserva no fim, a resposta é `409 Conflict`.
 - Repetir a chamada é seguro: há no máximo um pagamento aberto por pedido, inclusive com requisições simultâneas.
 
-| Status | Quando ocorre |
-|---|---|
-| `200 OK` | Sessão criada, ou sessão aberta existente reaproveitada. |
-| `401 Unauthorized` | Sem JWT válido. |
-| `403 Forbidden` | Usuário autenticado que não é cliente. |
-| `404 Not Found` | Pedido inexistente ou de outro cliente. |
-| `409 Conflict` | Pedido não está `PENDING_PAYMENT`, a reserva expira em menos de 2 minutos, outra requisição está criando o pagamento neste instante, ou o checkout anterior já foi concluído e está em processamento. |
-| `502 Bad Gateway` | Stripe ou Order API indisponível. Se a falha foi do Stripe, a tentativa é registrada como `FAILED` e uma nova chamada cria outra. |
+| Status | Quando ocorre | Exemplo de resposta |
+|---|---|---|
+| `200 OK` | Sessão criada, ou sessão aberta existente reaproveitada. | — |
+| `401 Unauthorized` | Sem JWT válido. | `"Token ausente, inválido ou revogado."` |
+| `403 Forbidden` | Usuário autenticado que não é cliente. | `"Somente clientes podem pagar pedidos."` |
+| `404 Not Found` | Pedido inexistente ou de outro cliente. | `"Pedido não encontrado."` |
+| `409 Conflict` | Pedido não está `PENDING_PAYMENT`, a reserva expira em menos de 2 minutos, outra requisição está criando o pagamento neste instante, ou o checkout anterior já foi concluído e está em processamento. | Mensagem específica sobre o estado do pedido ou da reserva. |
+| `502 Bad Gateway` | Stripe ou Order API indisponível. Se a falha foi do Stripe, a tentativa é registrada como `FAILED` e uma nova chamada cria outra. | `"Serviço de pedidos indisponível."`, `"Não foi possível iniciar o pagamento."` ou `"Não foi possível encerrar o pagamento anterior."` |
 
 ### Consultar pagamento
 
@@ -1875,11 +1907,11 @@ Garantias:
 - Se o Order API ou o Stripe estiverem indisponíveis (ou o `confirm` responder `404`), o webhook responde `500` e a transação inteira é desfeita, inclusive o registro do evento. O Stripe reenvia o evento, e as chamadas ao Order API são idempotentes.
 - Um pedido já confirmado não é confirmado de novo, e um `409` no cancelamento de pedido confirmado é apenas registrado em log.
 
-| Status | Quando ocorre |
-|---|---|
-| `200 OK` | Evento processado, duplicado, ignorado ou de sessão desconhecida. |
-| `400 Bad Request` | Assinatura ausente ou inválida, ou corpo que não é um evento do Stripe. |
-| `500 Internal Server Error` | Falha de infraestrutura; nada é gravado e o Stripe reenviará. |
+| Status | Quando ocorre | Exemplo de resposta |
+|---|---|---|
+| `200 OK` | Evento processado, duplicado, ignorado ou de sessão desconhecida. | Sem corpo. |
+| `400 Bad Request` | Assinatura ausente ou inválida, ou corpo que não é um evento do Stripe. | `"Assinatura ou evento do webhook inválido."` |
+| `500 Internal Server Error` | Falha de infraestrutura; nada é gravado e o Stripe reenviará. | `"Não foi possível processar o webhook. O evento será reenviado."` |
 
 ### Pagamento aprovado tardiamente
 

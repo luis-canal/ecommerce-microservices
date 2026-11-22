@@ -6,6 +6,7 @@ import br.edu.atitus.productapi.dtos.CategoryStatusRequest;
 import br.edu.atitus.productapi.servicesimpl.AuthorizationService;
 import br.edu.atitus.productapi.servicesimpl.CategoryService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -60,11 +61,15 @@ public class WsCategoryController {
 
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<String> handleResponseStatus(ResponseStatusException exception) {
-        return ResponseEntity.status(exception.getStatusCode()).body(exception.getReason());
+        return ResponseEntity.status(exception.getStatusCode())
+                .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                .body(exception.getReason() == null ? "Requisição não aceita." : exception.getReason());
     }
 
     @ExceptionHandler(jakarta.persistence.EntityNotFoundException.class)
     public ResponseEntity<String> handleNotFound(jakarta.persistence.EntityNotFoundException exception) {
-        return ResponseEntity.status(404).body(exception.getMessage());
+        return ResponseEntity.status(404)
+                .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                .body("Categoria não encontrada.");
     }
 }

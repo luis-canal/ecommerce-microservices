@@ -37,7 +37,9 @@ class CartControllerTest {
     @Test
     void patchAcceptsOnlyTheNewQuantityInItsBody() throws Exception {
         CartService service = mock(CartService.class);
-        MockMvc mockMvc = standaloneSetup(new CartController(service)).build();
+        MockMvc mockMvc = standaloneSetup(new CartController(service))
+                .setControllerAdvice(new ApiExceptionHandler())
+                .build();
         when(service.updateItemQuantity(42L, 17L, 3)).thenReturn(null);
 
         mockMvc.perform(patch("/ws/cart/items/17")
@@ -48,5 +50,23 @@ class CartControllerTest {
                 .andExpect(status().isOk());
 
         verify(service).updateItemQuantity(eq(42L), eq(17L), eq(3));
+    }
+
+    @Test
+    void returnsSpecificTextForNonPositiveQuantity() throws Exception {
+        MockMvc mockMvc = standaloneSetup(new CartController(mock(CartService.class)))
+                .setControllerAdvice(new ApiExceptionHandler())
+                .build();
+
+        mockMvc.perform(patch("/ws/cart/items/17")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\":0}")
+                        .header("X-User-Id", 42L)
+                        .header("X-User-Type", 1))
+                .andExpect(status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(MediaType.TEXT_PLAIN))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string("A quantidade deve ser maior que zero."));
     }
 }

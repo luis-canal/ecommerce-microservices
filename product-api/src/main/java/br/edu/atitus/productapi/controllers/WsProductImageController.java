@@ -3,6 +3,8 @@ package br.edu.atitus.productapi.controllers;
 import br.edu.atitus.productapi.dtos.ProductImageResponse;
 import br.edu.atitus.productapi.servicesimpl.AuthorizationService;
 import br.edu.atitus.productapi.servicesimpl.ProductImageService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +26,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/ws/products/{productId}/images")
 public class WsProductImageController {
+
+    private static final Logger log = LoggerFactory.getLogger(WsProductImageController.class);
 
     private final ProductImageService imageService;
     private final AuthorizationService authService;
@@ -75,16 +79,23 @@ public class WsProductImageController {
 
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<String> handleResponseStatusException(ResponseStatusException e) {
-        return ResponseEntity.status(e.getStatusCode()).body(e.getReason());
+        return ResponseEntity.status(e.getStatusCode())
+                .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                .body(e.getReason() == null ? "Requisição não aceita." : e.getReason());
     }
 
     @ExceptionHandler(MissingServletRequestPartException.class)
     public ResponseEntity<String> handleMissingPart(MissingServletRequestPartException e) {
-        return ResponseEntity.badRequest().body("Arquivo de imagem obrigatório no campo \"file\".");
+        return ResponseEntity.badRequest()
+                .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                .body("Arquivo de imagem obrigatório no campo \"file\".");
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<String> exceptionHandler(Exception ex) {
-        return ResponseEntity.status(500).body("Ops!!! Algo deu errado. - " + ex.getMessage());
+        log.error("Erro inesperado ao processar requisição de imagem.", ex);
+        return ResponseEntity.status(500)
+                .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                .body("Ocorreu um erro interno. Tente novamente mais tarde.");
     }
 }

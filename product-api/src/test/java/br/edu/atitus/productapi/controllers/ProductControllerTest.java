@@ -35,6 +35,7 @@ class ProductControllerTest {
         service = mock(ProductService.class);
         when(service.findAll(any(), any(), any())).thenReturn(new PageImpl<>(List.of()));
         mockMvc = standaloneSetup(new ProductController(service))
+                .setControllerAdvice(new ApiExceptionHandler())
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .build();
     }
@@ -94,6 +95,25 @@ class ProductControllerTest {
     @Test
     void returnsBadRequestForMalformedPriceParameter() throws Exception {
         mockMvc.perform(get("/products").param("minPrice", "not-a-price"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith(org.springframework.http.MediaType.TEXT_PLAIN))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string("Parâmetro inválido: minPrice."));
+    }
+
+    @Test
+    void preservesSpecificValidationMessageFromService() throws Exception {
+        when(service.findAll(any(), any(), any())).thenThrow(
+                new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST,
+                        "O preço deve ser maior que zero."
+                )
+        );
+
+        mockMvc.perform(get("/products").param("minPrice", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string("O preço deve ser maior que zero."));
     }
 }

@@ -5,5 +5,5 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 
 public interface UserService extends UserDetailsService {
 
-    UserEntity save(UserEntity user) throws Exception;
+    UserEntity save(UserEntity user);
 }

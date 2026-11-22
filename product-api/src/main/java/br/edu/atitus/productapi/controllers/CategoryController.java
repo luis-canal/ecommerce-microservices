@@ -5,6 +5,7 @@ import br.edu.atitus.productapi.dtos.SubcategoryResponse;
 import br.edu.atitus.productapi.servicesimpl.CategoryService;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,6 +36,8 @@ public class CategoryController {
 
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<String> handleEntityNotFound(EntityNotFoundException exception) {
-        return ResponseEntity.notFound().build();
+        return ResponseEntity.status(404)
+                .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                .body("Categoria não encontrada ou inativa.");
     }
 }

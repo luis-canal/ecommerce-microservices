@@ -136,33 +136,4 @@ public class WsProductController {
         return json;
     }
 
-    @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<String> handleResponseStatusException(ResponseStatusException e) {
-        return ResponseEntity
-                .status(e.getStatusCode())
-                .body(e.getReason());
-    }
-
-    @ExceptionHandler(jakarta.persistence.EntityNotFoundException.class)
-    public ResponseEntity<String> handleNotFound(jakarta.persistence.EntityNotFoundException e) {
-        return ResponseEntity.status(404).body(e.getMessage());
-    }
-
-    /**
-     * Parâmetro com tipo inválido (ex.: status=FOO) nas leituras administrativas responde 400.
-     * As demais rotas deste controller mantêm o tratamento anterior (handler genérico).
-     */
-    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<String> invalidParameterExceptionHandler(MethodArgumentTypeMismatchException exception) {
-        if (!exception.getParameter().hasMethodAnnotation(GetMapping.class)) {
-            return exceptionHandler(exception);
-        }
-        return ResponseEntity.badRequest().body("Parâmetro inválido: " + exception.getName());
-    }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<String> exceptionHandler(Exception ex) {
-        return ResponseEntity.status(500)
-                .body("Ops!!! Algo deu errado. - " + ex.getMessage());
-    }
 }

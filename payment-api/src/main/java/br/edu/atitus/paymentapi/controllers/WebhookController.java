@@ -7,6 +7,7 @@ import br.edu.atitus.paymentapi.services.WebhookService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -31,7 +32,7 @@ public class WebhookController {
     }
 
     @PostMapping("/payments/webhook")
-    public ResponseEntity<Void> receive(
+    public ResponseEntity<?> receive(
             @RequestBody(required = false) String payload,
             @RequestHeader(name = "Stripe-Signature", required = false) String signature
     ) {
@@ -40,7 +41,9 @@ public class WebhookController {
             event = paymentGateway.parseWebhookEvent(payload, signature);
         } catch (InvalidWebhookSignatureException exception) {
             log.warn("Webhook rejeitado: {}", exception.getMessage());
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest()
+                    .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                    .body("Assinatura ou evento do webhook inválido.");
         }
 
         try {
@@ -48,7 +51,9 @@ public class WebhookController {
         } catch (RuntimeException exception) {
             log.error("Falha ao processar o evento {} ({}); será reenviado pelo Stripe: {}",
                     event.eventId(), event.rawType(), exception.getMessage());
-            return ResponseEntity.internalServerError().build();
+            return ResponseEntity.internalServerError()
+                    .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                    .body("Não foi possível processar o webhook. O evento será reenviado.");
         }
         return ResponseEntity.ok().build();
     }
