@@ -27,6 +27,11 @@ services:
     volumes:
       - ./consul/config/load-config.sh:/scripts/load-config.sh:ro
       - auth_internal_secret:/run/secrets
+    # Credenciais externas (STORAGE_*, STRIPE_*, PAYMENT_*_URL), cadastradas no Consul pelo load-config.sh.
+    # Vêm de docker/.env, que não é versionado e é lido somente por este container.
+    env_file:
+      - path: .env
+        required: false
     environment:
       CONSUL_HTTP_ADDR: http://consul:8500
     depends_on:
@@ -191,8 +196,6 @@ services:
   # BANCO DE DADOS - PAYMENT API
   # ==========================================================
   payment-db:
-    profiles:
-      - payment
     image: postgres:17
     container_name: payment-db
     environment:
@@ -217,11 +220,7 @@ services:
     build:
       context: ../product-api
     container_name: product-api
-    # Credenciais do armazenamento de imagens (STORAGE_*), lidas de docker/.env.
-    # Copie docker/.env.example para docker/.env e preencha; o arquivo não é versionado.
-    env_file:
-      - path: .env
-        required: false
+    # As credenciais do armazenamento de imagens vêm do Consul (config/product-api/app.storage.*).
     environment:
       SPRING_CONFIG_IMPORT: "consul:"
       SPRING_CLOUD_CONSUL_HOST: consul
@@ -376,19 +375,13 @@ services:
   # ==========================================================
   # PAYMENT API
   # ==========================================================
-  # Integração com o Stripe (somente modo teste). Suba com: docker compose --profile payment up -d
-  # As credenciais do Stripe (STRIPE_*, PAYMENT_*_URL) vêm de docker/.env.payment, que não é
-  # versionado e é lido somente por este serviço. Copie docker/.env.payment.example e preencha.
-  # Nenhum outro serviço depende do payment-api.
+  # Integração com o Stripe (somente modo teste).
+  # As credenciais do Stripe vêm do Consul (config/payment-api/payment.stripe.*).
+  # Sem chave de teste do Stripe o serviço não sobe. Nenhum outro serviço depende do payment-api.
   payment-api:
-    profiles:
-      - payment
     build:
       context: ../payment-api
     container_name: payment-api
-    env_file:
-      - path: .env.payment
-        required: false
     environment:
       SPRING_CONFIG_IMPORT: "consul:"
       SPRING_CLOUD_CONSUL_HOST: consul

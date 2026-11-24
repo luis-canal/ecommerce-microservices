@@ -283,7 +283,7 @@ Responsável pelo pagamento dos pedidos com o **Stripe Checkout em modo de teste
 | GET | `/ws/payments/orders/{orderId}` | Status do pagamento mais recente do pedido |
 | POST | `/payments/webhook` | Notificações do Stripe (pública, validada pela assinatura) |
 
-Estados do pagamento: `CREATED`, `PENDING`, `APPROVED`, `FAILED`, `EXPIRED`, `CANCELLED` e `REFUNDED`. O serviço e seu banco dedicado (`payment_db`) utilizam, respectivamente, as portas 8800 e 5432 na rede Docker. O serviço só sobe com uma chave de teste do Stripe (`sk_test_` ou `rk_test_`) e faz parte do profile `payment` do Compose. Os endpoints, as transições e o tratamento de falhas estão detalhados em [API.md](./API.md#pagamentos).
+Estados do pagamento: `CREATED`, `PENDING`, `APPROVED`, `FAILED`, `EXPIRED`, `CANCELLED` e `REFUNDED`. O serviço e seu banco dedicado (`payment_db`) utilizam, respectivamente, as portas 8800 e 5432 na rede Docker. O serviço só sobe com uma chave de teste do Stripe (`sk_test_` ou `rk_test_`) e sobe por padrão com o Compose. Os endpoints, as transições e o tratamento de falhas estão detalhados em [API.md](./API.md#pagamentos).
 
 ## Segurança
 
@@ -303,7 +303,7 @@ O `inventory-api` e o `cart-api` validam credenciais privadas do Gateway. As con
 
 As rotas `/ws/admin/analytics/**` exigem JWT de administrador: sem token o Gateway responde `401`, e usuários sem perfil de administrador recebem `403`. O `analytics-api` aceita somente requisições encaminhadas pelo Gateway com sua credencial privada; chamadas diretas ao serviço são rejeitadas. Para coletar dados, ele chama o `order-api` e o `inventory-api` com a credencial serviço-a-serviço.
 
-As rotas `/ws/payments/**` exigem JWT de cliente e chegam ao `payment-api` com sua credencial privada do Gateway; chamadas diretas são rejeitadas. A única rota pública do serviço é `POST /payments/webhook`, autenticada pela assinatura `Stripe-Signature` do Stripe. O `payment-api` chama as rotas internas do `order-api` (`payment-info`, `confirm` e `cancel`) com a credencial serviço-a-serviço; pelo Gateway, um cliente recebe `401` nessas rotas. A chave secreta do Stripe fica apenas em variável de ambiente do servidor, precisa ser de teste e nunca é registrada em log, assim como o corpo dos webhooks.
+As rotas `/ws/payments/**` exigem JWT de cliente e chegam ao `payment-api` com sua credencial privada do Gateway; chamadas diretas são rejeitadas. A única rota pública do serviço é `POST /payments/webhook`, autenticada pela assinatura `Stripe-Signature` do Stripe. O `payment-api` chama as rotas internas do `order-api` (`payment-info`, `confirm` e `cancel`) com a credencial serviço-a-serviço; pelo Gateway, um cliente recebe `401` nessas rotas. A chave secreta do Stripe fica no KV do Consul (nunca no repositório), precisa ser de teste e nunca é registrada em log, assim como o corpo dos webhooks.
 
 ## Banco de dados e persistência
 
@@ -344,7 +344,11 @@ As configurações incluem propriedades de execução, conexão com PostgreSQL e
 
 Para o `analytics-api`, o script cadastra a porta, a conexão com o `analytics_db`, as URLs do `order-api` e do `inventory-api`, as credenciais internas e o intervalo da coleta periódica (`analytics.collection.interval-ms`).
 
-Para o `payment-api`, o script cadastra a porta, a conexão com o `payment_db`, a URL do `order-api`, as credenciais internas e a reserva mínima para abrir um checkout (`payment.min-reservation-seconds`, padrão `120`). As credenciais do Stripe não passam pelo Consul: vêm de variáveis de ambiente (`docker/.env.payment`).
+Para o `payment-api`, o script cadastra a porta, a conexão com o `payment_db`, a URL do `order-api`, as credenciais internas e a reserva mínima para abrir um checkout (`payment.min-reservation-seconds`, padrão `120`). O script também cadastra as credenciais do Stripe (`payment.stripe.*`), lidas de `docker/.env`.
+
+Para o `product-api`, além da porta, do banco e da resiliência, o script cadastra as credenciais do armazenamento de imagens (`app.storage.*`), lidas de `docker/.env`.
+
+As credenciais externas seguem o mesmo modelo das credenciais internas: o `consul-config` é o único container que recebe o arquivo `docker/.env`, e os microsserviços leem os valores apenas do Consul. Uma variável vazia ou ausente remove a chave correspondente do Consul. O valor é enviado ao Consul pela entrada padrão e não aparece no log do carregador. Qualquer pessoa com acesso à porta `8500` consegue ler o KV; por isso, use apenas chaves de teste neste ambiente.
 
 O Consul em modo de desenvolvimento não oferece persistência dos dados de configuração após o encerramento da instância.
 
@@ -362,7 +366,20 @@ Para requisições de clientes, utilize somente a porta `8080` do Gateway. As po
 
 ## Executando com Docker Compose
 
-Por padrão, o Compose inicia apenas o fluxo de checkout: Consul e seu carregador de configuração, Gateway, Auth, Product, Currency, Inventory e Order, com os respectivos bancos. Os builds são sequenciais para reduzir o pico de CPU, memória e disco:
+Por padrão, o Compose inicia o fluxo de checkout e pagamento: Consul e seu carregador de configuração, Gateway, Auth, Product, Currency, Inventory, Order e Payment, com os respectivos bancos. Os builds são sequenciais para reduzir o pico de CPU, memória e disco.
+
+**Primeira execução:**
+
+1. Peça o arquivo `docker/.env` a quem montou o ambiente. O arquivo contém as credenciais externas (S3 e Stripe de teste) e não é versionado; envie-o somente por um canal privado.
+2. Coloque o arquivo na pasta `docker/` do repositório.
+3. Rode o Compose:
+
+```bash
+cd docker
+docker compose up --build -d
+```
+
+Sem o `docker/.env`, os serviços sobem, mas o upload de imagens falha e o `payment-api` não sobe. Para executar a partir da raiz do repositório:
 
 ```bash
 docker compose --parallel 1 -f docker/docker-compose.yml up --build -d
@@ -380,8 +397,6 @@ docker compose --parallel 1 -f docker/docker-compose.yml --profile analytics up 
 # Prometheus, Loki, Alloy, Grafana e Zipkin
 docker compose --parallel 1 -f docker/docker-compose.yml --profile observability up --build -d
 
-# Pagamentos (Stripe em modo teste) e seu banco; exige as variáveis do Stripe em docker/.env.payment
-docker compose --parallel 1 -f docker/docker-compose.yml --profile payment up --build -d
 ```
 
 Para ativar mais de um conjunto opcional, repita `--profile`, por exemplo `--profile cart --profile analytics`. O BuildKit compartilha o cache de dependências Maven entre as APIs; a primeira compilação ainda precisa baixar as dependências. Use `docker compose -f docker/docker-compose.yml down` para parar os serviços sem apagar dados. Evite `down -v` se quiser conservar volumes.
@@ -390,11 +405,7 @@ O script gera cinco segredos se ainda não existirem, grava-os no volume `auth_i
 
 ### Armazenamento de imagens (Supabase Storage)
 
-O `product-api` lê as credenciais do armazenamento apenas de variáveis de ambiente. No Compose, elas vêm de `docker/.env`, que não é versionado. Copie o modelo e preencha:
-
-```bash
-cp docker/.env.example docker/.env
-```
+O `product-api` lê as credenciais do armazenamento do Consul (`config/product-api/app.storage.*`). O `consul-config` cadastra os valores a partir da seção `# --- Imagens / S3 (Supabase) ---` de `docker/.env`. O modelo `docker/.env.example` lista as variáveis sem valores; use-o apenas para montar o arquivo pela primeira vez.
 
 | Variável | Descrição |
 |---|---|
@@ -412,11 +423,7 @@ O `payment-api` também acrescenta uma credencial de encaminhamento do Gateway (
 
 ### Pagamentos com Stripe (modo teste)
 
-O `payment-api` lê as credenciais do Stripe apenas de variáveis de ambiente. No Compose, elas vêm de `docker/.env.payment`, um arquivo separado, não versionado e lido **somente** pelo `payment-api` (os demais serviços não recebem essas variáveis). Copie o modelo e preencha:
-
-```bash
-cp docker/.env.payment.example docker/.env.payment
-```
+O `payment-api` lê as credenciais do Stripe do Consul (`config/payment-api/payment.stripe.*`). O `consul-config` cadastra os valores a partir da seção `# --- Stripe / Payment ---` de `docker/.env`; nenhum microsserviço recebe esse arquivo diretamente.
 
 Use somente chaves de **teste**: o serviço não sobe se `STRIPE_SECRET_KEY` não começar com `sk_test_` ou `rk_test_`. Nunca versione chaves.
 
@@ -435,17 +442,23 @@ Use somente chaves de **teste**: o serviço não sobe se `STRIPE_SECRET_KEY` nã
    stripe login
    ```
 
-2. Encaminhe os webhooks para o Gateway e copie o segredo `whsec_...` exibido para `STRIPE_WEBHOOK_SECRET` em `docker/.env.payment` (mantenha o comando rodando):
+2. Encaminhe os webhooks para o Gateway e copie o segredo `whsec_...` exibido para `STRIPE_WEBHOOK_SECRET` em `docker/.env` (mantenha o comando rodando):
 
    ```bash
    stripe listen --forward-to localhost:8080/payments/webhook
    ```
 
-3. Preencha `STRIPE_SECRET_KEY`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` em `docker/.env.payment` e suba os serviços com o profile `payment` (na primeira vez, inclua `--build`):
+3. Preencha `STRIPE_SECRET_KEY`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` em `docker/.env` e suba os serviços (na primeira vez, inclua `--build`):
 
    ```bash
    cd docker
-   docker compose --profile payment up -d
+   docker compose up -d
+   ```
+
+   Se você alterar `docker/.env` com os serviços em execução (por exemplo, um novo `whsec_...`), recarregue o Consul e reinicie o serviço afetado:
+
+   ```bash
+   docker compose up -d --force-recreate consul-config payment-api
    ```
 
 4. Autentique-se como cliente, crie um pedido em `POST /ws/orders` e inicie o pagamento:

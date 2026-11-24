@@ -17,6 +17,24 @@ put() {
     consul kv put "$1" "$2"
 }
 
+# Cadastra uma credencial externa recebida por variável de ambiente.
+# O valor vai pela entrada padrão: não aparece na linha de comando nem no log,
+# e um valor iniciado por "@" ou "-" não é interpretado pelo consul kv put.
+# Variável vazia ou ausente remove a chave, para não deixar valor antigo no Consul.
+put_external() {
+    key="$1"
+    # $2 é sempre um nome fixo deste script, nunca um valor externo.
+    eval "value=\${$2:-}"
+    value="$(printf '%s' "$value" | tr -d '\r')"
+    if [ -n "$value" ]; then
+        printf '%s' "$value" | consul kv put "$key" - >/dev/null
+        echo "Credencial cadastrada: $key"
+    else
+        consul kv delete "$key" >/dev/null
+        echo "Credencial ausente ($2): $key não cadastrada"
+    fi
+}
+
 # ==========================================================
 # CONFIGURAÇÕES GERAIS - TODAS AS APLICAÇÕES
 # ==========================================================
@@ -71,6 +89,15 @@ put "config/product-api/spring.cache.caffeine.spec" "maximumSize=1000,expireAfte
 # Ordem dos aspectos
 put "config/product-api/resilience4j.retry.retry-aspect-order" "100"
 put "config/product-api/resilience4j.circuitbreaker.circuit-breaker-aspect-order" "101"
+
+# Armazenamento de imagens (compatível com S3; ex.: Supabase Storage).
+# Os valores vêm de docker/.env, lido somente por este carregador.
+put_external "config/product-api/app.storage.s3.endpoint"   "STORAGE_S3_ENDPOINT"
+put_external "config/product-api/app.storage.s3.region"     "STORAGE_S3_REGION"
+put_external "config/product-api/app.storage.s3.access-key" "STORAGE_S3_ACCESS_KEY"
+put_external "config/product-api/app.storage.s3.secret-key" "STORAGE_S3_SECRET_KEY"
+put_external "config/product-api/app.storage.s3.bucket"     "STORAGE_S3_BUCKET"
+put_external "config/product-api/app.storage.public-base-url" "STORAGE_PUBLIC_BASE_URL"
 
 
 # ==========================================================
@@ -335,8 +362,6 @@ put "config/analytics-api/analytics.collection.interval-ms" "300000"
 # ==========================================================
 # PAYMENT API
 # ==========================================================
-# As credenciais do Stripe NÃO ficam no Consul: vêm de docker/.env (variáveis de ambiente).
-
 put "config/payment-api/server.port" "8800"
 put "config/payment-api/spring.datasource.url"     "jdbc:postgresql://payment-db:5432/payment_db"
 put "config/payment-api/spring.datasource.username" "postgres"
@@ -344,6 +369,12 @@ put "config/payment-api/spring.datasource.password" "postgres"
 put "config/payment-api/payment.security.service-token" "$SERVICE_AUTH_TOKEN"
 put "config/payment-api/payment.clients.order-api.base-url" "http://order-api"
 put "config/payment-api/payment.min-reservation-seconds" "120"
+
+# Stripe (somente modo teste). Os valores vêm de docker/.env, lido somente por este carregador.
+put_external "config/payment-api/payment.stripe.secret-key"     "STRIPE_SECRET_KEY"
+put_external "config/payment-api/payment.stripe.webhook-secret" "STRIPE_WEBHOOK_SECRET"
+put_external "config/payment-api/payment.stripe.success-url"    "PAYMENT_SUCCESS_URL"
+put_external "config/payment-api/payment.stripe.cancel-url"     "PAYMENT_CANCEL_URL"
 
 # ==========================================================
 # OBSERVABILIDADE - MÉTRICAS E TRACING
