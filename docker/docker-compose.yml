@@ -150,8 +150,6 @@ services:
   # BANCO DE DADOS - CART API
   # ==========================================================
   cart-db:
-    profiles:
-      - cart
     image: postgres:17
     container_name: cart-db
     environment:
@@ -173,8 +171,6 @@ services:
   # BANCO DE DADOS - ANALYTICS API
   # ==========================================================
   analytics-db:
-    profiles:
-      - analytics
     image: postgres:17
     container_name: analytics-db
     environment:
@@ -326,8 +322,6 @@ services:
   # CART API
   # ==========================================================
   cart-api:
-    profiles:
-      - cart
     build:
       context: ../cart-api
     container_name: cart-api
@@ -354,8 +348,6 @@ services:
   # Depende apenas do Consul e do próprio banco: a indisponibilidade
   # das origens não impede a subida e a coleta tenta novamente no próximo ciclo.
   analytics-api:
-    profiles:
-      - analytics
     build:
       context: ../analytics-api
     container_name: analytics-api

@@ -366,7 +366,7 @@ Para requisições de clientes, utilize somente a porta `8080` do Gateway. As po
 
 ## Executando com Docker Compose
 
-Por padrão, o Compose inicia o fluxo de checkout e pagamento: Consul e seu carregador de configuração, Gateway, Auth, Product, Currency, Inventory, Order e Payment, com os respectivos bancos. Os builds são sequenciais para reduzir o pico de CPU, memória e disco.
+Por padrão, o Compose inicia todos os microsserviços: Consul e seu carregador de configuração, Gateway, Auth, Product, Currency, Inventory, Order, Payment, Cart e Analytics, com os respectivos bancos. Os builds são sequenciais para reduzir o pico de CPU, memória e disco.
 
 **Primeira execução:**
 
@@ -385,21 +385,13 @@ Sem o `docker/.env`, os serviços sobem, mas o upload de imagens falha e o `paym
 docker compose --parallel 1 -f docker/docker-compose.yml up --build -d
 ```
 
-Cart, Analytics e observabilidade podem ser adicionados quando necessários:
+A observabilidade (Prometheus, Loki, Alloy, Grafana e Zipkin) é opcional e pode ser adicionada quando necessária:
 
 ```bash
-# Carrinho e seu banco
-docker compose --parallel 1 -f docker/docker-compose.yml --profile cart up --build -d
-
-# Analytics e seu banco
-docker compose --parallel 1 -f docker/docker-compose.yml --profile analytics up --build -d
-
-# Prometheus, Loki, Alloy, Grafana e Zipkin
 docker compose --parallel 1 -f docker/docker-compose.yml --profile observability up --build -d
-
 ```
 
-Para ativar mais de um conjunto opcional, repita `--profile`, por exemplo `--profile cart --profile analytics`. O BuildKit compartilha o cache de dependências Maven entre as APIs; a primeira compilação ainda precisa baixar as dependências. Use `docker compose -f docker/docker-compose.yml down` para parar os serviços sem apagar dados. Evite `down -v` se quiser conservar volumes.
+O BuildKit compartilha o cache de dependências Maven entre as APIs; a primeira compilação ainda precisa baixar as dependências. Use `docker compose -f docker/docker-compose.yml down` para parar os serviços sem apagar dados. Evite `down -v` se quiser conservar volumes.
 
 O script gera cinco segredos se ainda não existirem, grava-os no volume `auth_internal_secret` e publica os valores no KV do Consul. A credencial serviço-a-serviço é compartilhada pelos serviços que realizam chamadas internas; as credenciais de encaminhamento do Gateway são distintas para Inventory, Order e Cart. Os valores são preservados enquanto o volume existir. Não execute `docker compose down -v` se quiser conservar as credenciais e os dados dos bancos.
 
