@@ -46,6 +46,15 @@ put "config/application/management.health.livenessstate.enabled" "true"
 put "config/application/management.health.readinessstate.enabled" "true"
 put "config/application/management.health.db.enabled" "true"
 
+# Inclui a mensagem da ResponseStatusException no corpo do erro (ex.: motivo do 409 do carrinho).
+# As mensagens são escritas para o usuário; stack trace e exceção continuam ocultos.
+# No Spring Boot 4 a propriedade é spring.web.error.* (server.error.* não existe mais).
+put "config/application/spring.web.error.include-message" "always"
+
+# Registra cada serviço no Consul pelo IP, não pelo hostname do contêiner. Com hostname, o Gateway
+# guarda em cache o IP antigo e responde 500 depois que um serviço reinicia com outro IP.
+put "config/application/spring.cloud.consul.discovery.prefer-ip-address" "true"
+
 
 # ==========================================================
 # PRODUCT API
