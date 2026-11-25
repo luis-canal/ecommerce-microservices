@@ -28,6 +28,10 @@ public class GatewayConfig {
                 .route("payment-api-webhook", route -> route
                         .path("/payments/webhook")
                         .uri("lb://payment-api"))
+                // Retorno do navegador após o Stripe: público, só redireciona para o deep link do app.
+                .route("payment-api-return", route -> route
+                        .path("/payments/return/success", "/payments/return/cancel")
+                        .uri("lb://payment-api"))
                 // Rotas Protegidas (/ws/**)
                 .route("product-api-ws", route -> route
                         .path("/ws/products/**")

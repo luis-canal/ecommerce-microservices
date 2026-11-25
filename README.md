@@ -423,8 +423,12 @@ Use somente chaves de **teste**: o serviço não sobe se `STRIPE_SECRET_KEY` nã
 |---|---|
 | `STRIPE_SECRET_KEY` | Chave secreta de teste (`sk_test_...` ou chave restrita `rk_test_...`), em *Developers → API keys* no painel do Stripe |
 | `STRIPE_WEBHOOK_SECRET` | Segredo de assinatura do webhook (`whsec_...`), exibido pelo `stripe listen` ou pelo endpoint cadastrado no painel |
-| `PAYMENT_SUCCESS_URL` | Página do frontend após o pagamento; deve conter `{CHECKOUT_SESSION_ID}`, por exemplo `http://localhost:5173/pagamento/sucesso?session_id={CHECKOUT_SESSION_ID}` |
-| `PAYMENT_CANCEL_URL` | Página do frontend quando o cliente desiste do pagamento |
+| `PAYMENT_SUCCESS_URL` | Retorno após o pagamento; deve conter `{CHECKOUT_SESSION_ID}`. Para o app, use a rota de retorno do Gateway num endereço que o celular alcança, por exemplo `http://192.168.0.18:8080/payments/return/success?session_id={CHECKOUT_SESSION_ID}` |
+| `PAYMENT_CANCEL_URL` | Retorno quando o cliente desiste do pagamento, por exemplo `http://192.168.0.18:8080/payments/return/cancel` |
+| `PAYMENT_APP_SUCCESS_URL` | Opcional. Deep link do app para onde `/payments/return/success` redireciona; padrão `oma://payment/success` |
+| `PAYMENT_APP_CANCEL_URL` | Opcional. Deep link do app para onde `/payments/return/cancel` redireciona; padrão `oma://payment/cancel` |
+
+O `payment-api` acrescenta `order_id` às URLs de retorno de cada sessão. Use o IP da máquina na rede local (`ipconfig`) ou um túnel: `localhost` não funciona no celular. No Windows, libere a porta `8080` no firewall para a rede privada.
 
 **Teste local com a Stripe CLI:**
 

@@ -106,8 +106,8 @@ public class StripePaymentGateway implements PaymentGateway {
         SessionCreateParams params = SessionCreateParams.builder()
                 .setMode(SessionCreateParams.Mode.PAYMENT)
                 .addAllowedPaymentMethodType(SessionCreateParams.AllowedPaymentMethodType.CARD)
-                .setSuccessUrl(successUrl)
-                .setCancelUrl(cancelUrl)
+                .setSuccessUrl(withOrderId(successUrl, request.orderId()))
+                .setCancelUrl(withOrderId(cancelUrl, request.orderId()))
                 .setClientReferenceId(request.orderId().toString())
                 .setExpiresAt(Instant.now().plus(SESSION_LIFETIME).getEpochSecond())
                 .putAllMetadata(metadata)
@@ -134,6 +134,17 @@ public class StripePaymentGateway implements PaymentGateway {
         } catch (StripeException exception) {
             throw new PaymentProviderException("Falha ao criar a sessão de checkout no Stripe.", exception);
         }
+    }
+
+    /**
+     * Acrescenta order_id à URL de retorno. O Stripe só substitui {CHECKOUT_SESSION_ID};
+     * com o order_id o app consulta o pagamento sem precisar guardar o pedido antes do checkout.
+     */
+    static String withOrderId(String url, Long orderId) {
+        int fragment = url.indexOf('#');
+        String base = fragment < 0 ? url : url.substring(0, fragment);
+        String suffix = fragment < 0 ? "" : url.substring(fragment);
+        return base + (base.contains("?") ? "&" : "?") + "order_id=" + orderId + suffix;
     }
 
     @Override

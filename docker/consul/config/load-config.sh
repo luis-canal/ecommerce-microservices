@@ -375,6 +375,9 @@ put_external "config/payment-api/payment.stripe.secret-key"     "STRIPE_SECRET_K
 put_external "config/payment-api/payment.stripe.webhook-secret" "STRIPE_WEBHOOK_SECRET"
 put_external "config/payment-api/payment.stripe.success-url"    "PAYMENT_SUCCESS_URL"
 put_external "config/payment-api/payment.stripe.cancel-url"     "PAYMENT_CANCEL_URL"
+# Deep links do app (opcionais: sem valor, o payment-api usa oma://payment/success e oma://payment/cancel).
+put_external "config/payment-api/payment.return.app-success-url" "PAYMENT_APP_SUCCESS_URL"
+put_external "config/payment-api/payment.return.app-cancel-url"  "PAYMENT_APP_CANCEL_URL"
 
 # ==========================================================
 # OBSERVABILIDADE - MÉTRICAS E TRACING
