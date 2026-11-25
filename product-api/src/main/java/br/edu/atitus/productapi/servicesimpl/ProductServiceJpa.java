@@ -92,7 +92,7 @@ public class ProductServiceJpa implements ProductService {
     @Transactional(readOnly = true)
     public ProductResponse findById(Long id, String targetCurrency) throws Exception {
         var product = repository.findByIdAndActiveTrueAndSubcategory_ActiveTrueAndSubcategory_Category_ActiveTrue(id)
-                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
+                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado."));
         String environment = "Product API running in port " + serverPort;
 
         return getResponse(product, productImageService.findByProductId(product.getId()), environment, targetCurrency);
@@ -103,7 +103,7 @@ public class ProductServiceJpa implements ProductService {
     @Transactional(readOnly = true)
     public ProductResponse findByIdForAdmin(Long id, String targetCurrency) throws Exception {
         var product = repository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
+                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado."));
         String environment = "Product API running in port " + serverPort;
 
         return getResponse(product, productImageService.findByProductId(product.getId()), environment, targetCurrency);
@@ -178,7 +178,7 @@ public class ProductServiceJpa implements ProductService {
     @Transactional
     public ProductEntity update(Long id, ProductUpdateRequest request) {
         var product = repository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
+                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado."));
         if (request == null) {
             throw badRequest("Requisição inválida");
         }
@@ -210,7 +210,7 @@ public class ProductServiceJpa implements ProductService {
             throw badRequest("Status inválido");
         }
         var product = repository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado"));
+                .orElseThrow(() -> new EntityNotFoundException("Produto não encontrado."));
         if (request.active()
                 && (!product.getSubcategory().isActive() || !product.getSubcategory().getCategory().isActive())) {
             throw new ResponseStatusException(
@@ -242,12 +242,15 @@ public class ProductServiceJpa implements ProductService {
         if (description == null || description.isBlank()) {
             throw badRequest("Descrição inválida");
         }
-        if (price == null || price.signum() <= 0) {
-            throw badRequest("Preço inválido");
+        if (price == null) {
+            throw badRequest("O preço é obrigatório.");
+        }
+        if (price.signum() <= 0) {
+            throw badRequest("O preço deve ser maior que zero.");
         }
         BigDecimal normalizedPrice = price.setScale(2, RoundingMode.HALF_UP);
         if (normalizedPrice.signum() <= 0) {
-            throw badRequest("Preço inválido");
+            throw badRequest("O preço deve ser maior que zero.");
         }
         if (normalizedPrice.precision() > 19) {
             throw badRequest("Preço excede o limite permitido");

@@ -50,27 +50,4 @@ public class ProductController {
         return ResponseEntity.ok(response);
     }
 
-    @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<String> responseStatusExceptionHandler(ResponseStatusException exception) {
-        return ResponseEntity.status(exception.getStatusCode()).body(exception.getReason());
-    }
-
-    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<String> invalidParameterExceptionHandler(MethodArgumentTypeMismatchException exception) {
-        return ResponseEntity.badRequest().body("Parâmetro inválido: " + exception.getName());
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<String> invalidArgumentExceptionHandler(IllegalArgumentException exception) {
-        return ResponseEntity.badRequest().body(exception.getMessage());
-    }
-
-    @ExceptionHandler(EntityNotFoundException.class)
-    public ResponseEntity<String> entityNotFoundExceptionHandler(EntityNotFoundException ex){
-        return ResponseEntity.status(404).body(ex.getMessage());
-    }
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<String> exceptionHandler(Exception ex){
-        return ResponseEntity.status(500).body("Ops!!! Algo deu errado. - " + ex.getMessage());
-    }
 }

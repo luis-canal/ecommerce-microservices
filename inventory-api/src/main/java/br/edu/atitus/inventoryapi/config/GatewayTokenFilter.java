@@ -45,7 +45,8 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
         }
 
         if (gatewayToken == null || gatewayToken.isBlank()) {
-            response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(), "Autenticação do Gateway não configurada.");
+            writeError(response, HttpStatus.SERVICE_UNAVAILABLE,
+                    "Autenticação do Gateway temporariamente indisponível.");
             return;
         }
 
@@ -54,11 +55,18 @@ public class GatewayTokenFilter extends OncePerRequestFilter {
                 gatewayToken.getBytes(StandardCharsets.UTF_8),
                 suppliedToken.getBytes(StandardCharsets.UTF_8)
         )) {
-            response.sendError(HttpStatus.UNAUTHORIZED.value(), "Requisição não encaminhada por um Gateway confiável.");
+            writeError(response, HttpStatus.UNAUTHORIZED, "Credencial de Gateway inválida.");
             return;
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void writeError(HttpServletResponse response, HttpStatus status, String message) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType("text/plain;charset=UTF-8");
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        response.getWriter().write(message);
     }
 
     private boolean isInternalServicePath(String path) {

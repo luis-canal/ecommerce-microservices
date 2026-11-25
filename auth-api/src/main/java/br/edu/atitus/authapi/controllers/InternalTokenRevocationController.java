@@ -3,6 +3,7 @@ package br.edu.atitus.authapi.controllers;
 import br.edu.atitus.authapi.services.TokenRevocationService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,16 +34,20 @@ public class InternalTokenRevocationController {
     }
 
     @PostMapping("/check")
-    public ResponseEntity<Boolean> checkRevocation(
+    public ResponseEntity<?> checkRevocation(
             @RequestHeader(value = INTERNAL_AUTH_HEADER, required = false) String providedSecret,
             @RequestBody TokenHashRequest request) {
         if (providedSecret == null || !MessageDigest.isEqual(
                 internalSecret, providedSecret.getBytes(StandardCharsets.UTF_8))) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                    .body("Credencial de serviço inválida.");
         }
 
         if (request.tokenHash() == null || !request.tokenHash().matches("[0-9a-f]{64}")) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest()
+                    .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                    .body("Hash do token inválido.");
         }
 
         return ResponseEntity.ok(tokenRevocationService.isRevoked(request.tokenHash()));

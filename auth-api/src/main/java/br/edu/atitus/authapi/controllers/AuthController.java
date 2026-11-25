@@ -12,6 +12,7 @@ import io.jsonwebtoken.Claims;
 import org.springframework.beans.BeanUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -59,35 +60,30 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+    public ResponseEntity<?> logout(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                    .body("Token Bearer ausente ou inválido.");
         }
 
         String token = authorization.substring(7).trim();
         if (token.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                    .body("Token Bearer ausente ou inválido.");
         }
 
         Claims claims = JwtUtil.validateToken(token);
         if (claims == null || claims.getExpiration() == null
                 || !claims.getExpiration().toInstant().isAfter(java.time.Instant.now())) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                    .body("Token Bearer ausente ou inválido.");
         }
 
         tokenRevocationService.revoke(token, claims.getExpiration().toInstant());
         return ResponseEntity.noContent().build();
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<String> handleException(Exception e) {
-        String cleanMessage = e.getMessage().replaceAll("[\\r\\n]", " ");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(cleanMessage);
-    }
-
-    @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<String> handleException(AuthenticationException e) {
-        String cleanMessage = e.getMessage().replaceAll("[\\r\\n]", " ");
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(cleanMessage);
-    }
 }

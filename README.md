@@ -508,6 +508,28 @@ O script usa a API pelo Gateway e, para cada produto ativo:
 - registrado com saldo: ignora.
 
 Produtos `MULTI_UNIT` recebem 50 unidades e produtos `SINGLE_UNIT` recebem 1 (o máximo aceito pelo `inventory-api`), com o motivo *"Carga inicial para testes"*. O script pode rodar várias vezes. Sem `ADMIN_PASSWORD`, ele pede a senha sem eco no terminal. Variáveis opcionais: `GATEWAY_URL` (padrão `http://localhost:8080`), `ADMIN_EMAIL`, `SEED_QUANTITY` e `SEED_REASON`. Requer `bash`, `curl` e Python 3 (no Windows, use o Git Bash).
+## Dados de demonstração (seed)
+
+> **Somente ambiente local de demonstração.** Os dados fictícios são carregados automaticamente pelo Flyway. Não use as credenciais de demonstração em ambientes reais.
+
+Ao recriar os bancos PostgreSQL vazios, cada microsserviço aplica suas migrações na inicialização:
+
+- `auth-api`: 20 clientes de teste em `V4__PopulateDemoUsers.sql`. Todos usam a senha exclusiva `Demo@2026`.
+- `product-api`: 30 produtos em `V8__PopulateDemoProducts.sql`, associados às categorias da V3. Os exemplos da V5 são desativados.
+- `inventory-api`: saldos, entradas, reservas e movimentações em `V2__PopulateDemoInventory.sql`.
+- `order-api`: pedidos confirmados, cancelados e expirados em `V4__PopulateDemoOrders.sql`.
+- `cart-api`: seis carrinhos em `V2__PopulateDemoCarts.sql`.
+
+Para recriar os dados em bancos vazios:
+
+```bash
+docker compose -f docker/docker-compose.yml --profile cart --profile analytics down -v
+docker compose --parallel 1 -f docker/docker-compose.yml --profile cart --profile analytics up --build -d
+```
+
+> **Atenção:** `down -v` remove todos os volumes PostgreSQL e, consequentemente, todos os dados de negócio e credenciais locais. Não apague os volumes em um ambiente real.
+
+As migrações usam IDs fixos coordenados entre os bancos e avançam as sequences. Elas falham explicitamente se encontrar IDs ou e-mails reservados ao demo, sem apagar ou sobrescrever dados existentes.
 
 ## Executando localmente
 

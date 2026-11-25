@@ -33,6 +33,9 @@ class ControllersTest {
         var response = webhookController.receive("{}", "invalid");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isEqualTo("Assinatura ou evento do webhook inválido.");
+        assertThat(response.getHeaders().getContentType()
+                .isCompatibleWith(org.springframework.http.MediaType.TEXT_PLAIN)).isTrue();
         verifyNoInteractions(webhookService);
     }
 
@@ -79,6 +82,8 @@ class ControllersTest {
         MockFilterChain blocked = new MockFilterChain();
         filter.doFilter(request("/ws/payments/orders/1/checkout-session", null), withoutToken, blocked);
         assertThat(withoutToken.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        assertThat(withoutToken.getContentAsString()).isEqualTo("Credencial de Gateway inválida.");
+        assertThat(withoutToken.getContentType()).startsWith("text/plain");
         assertThat(blocked.getRequest()).isNull();
 
         MockFilterChain allowed = new MockFilterChain();

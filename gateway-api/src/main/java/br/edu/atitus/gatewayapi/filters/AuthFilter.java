@@ -8,6 +8,7 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
@@ -96,10 +97,12 @@ public class AuthFilter implements GlobalFilter, Ordered {
                             .materialize()
                             .flatMap(result -> {
                                 if (!result.hasValue()) {
-                                    return reject(exchange, HttpStatus.SERVICE_UNAVAILABLE);
+                                    return reject(exchange, HttpStatus.SERVICE_UNAVAILABLE,
+                                            "Serviço de autenticação temporariamente indisponível.");
                                 }
                                 if (result.get()) {
-                                    return reject(exchange, HttpStatus.UNAUTHORIZED);
+                                    return reject(exchange, HttpStatus.UNAUTHORIZED,
+                                            "Token ausente, inválido ou revogado.");
                                 }
                                 return forwardTrustedDownstreamRequest(exchange, chain, authenticatedRequest, path);
                             });
@@ -107,7 +110,7 @@ public class AuthFilter implements GlobalFilter, Ordered {
             }
         }
 
-        return reject(exchange, HttpStatus.UNAUTHORIZED);
+        return reject(exchange, HttpStatus.UNAUTHORIZED, "Token ausente, inválido ou revogado.");
     }
 
     private boolean isValidServiceToken(String suppliedToken) {
@@ -151,7 +154,8 @@ public class AuthFilter implements GlobalFilter, Ordered {
             String downstreamToken
     ) {
         if (downstreamToken == null || downstreamToken.isBlank()) {
-            return reject(exchange, HttpStatus.SERVICE_UNAVAILABLE);
+            return reject(exchange, HttpStatus.SERVICE_UNAVAILABLE,
+                    "Autenticação do serviço temporariamente indisponível.");
         }
         ServerHttpRequest signedRequest = request.mutate()
                 .headers(headers -> headers.set("X-Gateway-Token", downstreamToken))
@@ -180,9 +184,13 @@ public class AuthFilter implements GlobalFilter, Ordered {
         return path.equals("/ws/cart") || path.startsWith("/ws/cart/");
     }
 
-    private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status) {
+    private Mono<Void> reject(ServerWebExchange exchange, HttpStatus status, String message) {
         exchange.getResponse().setStatusCode(status);
-        return exchange.getResponse().setComplete();
+        exchange.getResponse().getHeaders().setContentType(
+                MediaType.parseMediaType("text/plain;charset=UTF-8"));
+        byte[] body = message.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponse().getHeaders().setContentLength(body.length);
+        return exchange.getResponse().writeWith(Mono.just(exchange.getResponse().bufferFactory().wrap(body)));
     }
 
     @Override

@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 public record CartQuantityRequest(
-        @NotNull @Positive Integer quantity
+        @NotNull(message = "A quantidade é obrigatória.")
+        @Positive(message = "A quantidade deve ser maior que zero.")
+        Integer quantity
 ) {
 }

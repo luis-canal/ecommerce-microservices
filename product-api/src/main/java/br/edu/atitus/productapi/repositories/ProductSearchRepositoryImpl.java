@@ -14,7 +14,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Repository;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -136,7 +138,10 @@ public class ProductSearchRepositoryImpl implements ProductSearchRepository {
                 case "name" -> builder.lower(product.get("name"));
                 case "price" -> convertedPrice;
                 case "description" -> product.get("description");
-                default -> throw new IllegalArgumentException("Campo de ordenação não suportado");
+                default -> throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Campo de ordenação não suportado."
+                );
             };
             orders.add(order.isAscending() ? builder.asc(expression) : builder.desc(expression));
         }

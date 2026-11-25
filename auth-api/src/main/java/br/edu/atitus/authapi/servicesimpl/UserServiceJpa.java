@@ -9,6 +9,8 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class UserServiceJpa implements UserService {
@@ -20,32 +22,32 @@ public class UserServiceJpa implements UserService {
         this.encoder = encoder;
     }
 
-    private void validate(UserEntity user) throws Exception {
+    private void validate(UserEntity user) {
         if (user.getName() == null || user.getName().isEmpty())
-            throw new Exception("Nome informado inválido");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O nome é obrigatório.");
         if (user.getEmail() == null || user.getEmail().isEmpty() || !Validator.validateEmail(user.getEmail()))
-            throw new Exception("E-mail informado inválido");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O e-mail informado é inválido.");
         if (user.getPassword() == null || user.getPassword().isEmpty())
-            throw new Exception("Senha informada inválida");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A senha é obrigatória.");
 
         if (user.getId() != null) {
             if (userRepository.existsByEmailAndIdNot(user.getEmail(), user.getId()))
-                throw new Exception("Já existe usuário com este e-mail");
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Já existe um usuário com este e-mail.");
         } else {
             if (userRepository.existsByEmail(user.getEmail()))
-                throw new Exception("Já existe usuário com este e-mail");
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Já existe um usuário com este e-mail.");
         }
         // TODO validar se usuário tem permissão para o tipo escolhido
     }
 
-    private void format(UserEntity user) throws Exception {
+    private void format(UserEntity user) {
         user.setPassword(encoder.encode(user.getPassword()));
     }
 
     @Override
-    public UserEntity save(UserEntity user) throws Exception {
+    public UserEntity save(UserEntity user) {
         if (user == null)
-            throw new Exception("Objeto nulo");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Os dados do usuário são obrigatórios.");
         validate(user);
         format(user);
         return userRepository.save(user);

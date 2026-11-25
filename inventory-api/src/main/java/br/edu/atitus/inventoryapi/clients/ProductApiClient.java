@@ -51,7 +51,7 @@ public class ProductApiClient {
             }
             return product.productType();
         } catch (HttpClientErrorException.NotFound exception) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Produto não encontrado no product-api.");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Produto não encontrado.");
         } catch (RestClientResponseException exception) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_GATEWAY,

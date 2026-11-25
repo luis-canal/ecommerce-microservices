@@ -15,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -77,6 +78,8 @@ class AdminAnalyticsControllerTest {
         filter.doFilter(request("gateway-secret"), viaGateway, gatewayChain);
 
         assertEquals(HttpStatus.UNAUTHORIZED.value(), direct.getStatus());
+        assertEquals("Credencial de Gateway inválida.", direct.getContentAsString());
+        assertTrue(direct.getContentType().startsWith("text/plain"));
         assertNull(directChain.getRequest());
         assertNotNull(gatewayChain.getRequest());
     }

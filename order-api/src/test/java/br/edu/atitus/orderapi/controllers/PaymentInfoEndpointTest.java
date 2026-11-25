@@ -19,6 +19,7 @@ import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -63,12 +64,15 @@ class PaymentInfoEndpointTest {
     void rejectsMissingOrInvalidServiceToken() throws Exception {
         MockHttpServletRequest invalid = request("GET", "/ws/orders/internal/7/payment-info");
         invalid.addHeader("X-Service-Token", "wrong");
+        invalid.addHeader("X-Gateway-Token", GATEWAY_TOKEN);
         MockHttpServletResponse invalidResponse = new MockHttpServletResponse();
 
         MockFilterChain chain = runBothFilters(invalid, invalidResponse);
 
         assertNull(chain.getRequest());
         assertEquals(HttpStatus.UNAUTHORIZED.value(), invalidResponse.getStatus());
+        assertEquals("Credencial de serviço inválida.", invalidResponse.getContentAsString());
+        assertTrue(invalidResponse.getContentType().startsWith("text/plain"));
     }
 
     /**
