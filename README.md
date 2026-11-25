@@ -350,6 +350,11 @@ Para o `product-api`, além da porta, do banco e da resiliência, o script cadas
 
 As credenciais externas seguem o mesmo modelo das credenciais internas: o `consul-config` é o único container que recebe o arquivo `docker/.env`, e os microsserviços leem os valores apenas do Consul. Uma variável vazia ou ausente remove a chave correspondente do Consul. O valor é enviado ao Consul pela entrada padrão e não aparece no log do carregador. Qualquer pessoa com acesso à porta `8500` consegue ler o KV; por isso, use apenas chaves de teste neste ambiente.
 
+Para todos os serviços, o script também cadastra em `config/application/`:
+
+- `spring.web.error.include-message=always`: o corpo das respostas de erro inclui a mensagem da regra de negócio (por exemplo, o motivo de um `409`). Stack trace e nome da exceção continuam ocultos.
+- `spring.cloud.consul.discovery.prefer-ip-address=true`: cada serviço se registra no Consul pelo IP do container. Com o hostname, o Gateway mantinha em cache o IP antigo e respondia `500` depois que um serviço reiniciava com outro IP.
+
 O Consul em modo de desenvolvimento não oferece persistência dos dados de configuração após o encerramento da instância.
 
 ## Requisitos
@@ -482,6 +487,27 @@ Outros cenários:
 - **Reenvio de evento:** `stripe events resend evt_...` reenvia um evento já processado; ele é respondido com `200` sem efeito.
 
 O Consul configurado com `-dev` é para desenvolvimento local; ele não persiste suas chaves após a remoção/recriação do container. O script repopula o KV ao iniciar o Compose, usando as credenciais persistidas. Em produção, use Consul com ACL/TLS e um gerenciador de segredos apropriado em vez do modo de desenvolvimento.
+
+### Dados de teste
+
+Os bancos são locais de cada pessoa. As migrations já criam:
+
+- **Catálogo:** categorias, subcategorias e 24 produtos ativos (`product-api`).
+- **Administrador:** `admin@admin.dev`, senha de desenvolvimento `teste` (`auth-api`). Use somente em ambiente local.
+
+O **estoque não tem seed**: um produto sem estoque cadastrado não pode ir para o carrinho (`409` com a mensagem *"A quantidade desejada excede a disponibilidade atual do estoque."*). Com o back-end no ar, rode a partir da raiz do repositório:
+
+```bash
+ADMIN_PASSWORD=teste bash docker/scripts/seed-inventory.sh
+```
+
+O script usa a API pelo Gateway e, para cada produto ativo:
+
+- sem registro no estoque: registra e lança a entrada inicial;
+- registrado com saldo físico zero: trata como pendente e lança a entrada inicial;
+- registrado com saldo: ignora.
+
+Produtos `MULTI_UNIT` recebem 50 unidades e produtos `SINGLE_UNIT` recebem 1 (o máximo aceito pelo `inventory-api`), com o motivo *"Carga inicial para testes"*. O script pode rodar várias vezes. Sem `ADMIN_PASSWORD`, ele pede a senha sem eco no terminal. Variáveis opcionais: `GATEWAY_URL` (padrão `http://localhost:8080`), `ADMIN_EMAIL`, `SEED_QUANTITY` e `SEED_REASON`. Requer `bash`, `curl` e Python 3 (no Windows, use o Git Bash).
 
 ## Executando localmente
 
@@ -666,6 +692,10 @@ ecommerce-microservices/
 │
 ├── gateway-api/
 │   └── Gateway e roteamento das requisições
+│
+├── docker/
+│   ├── docker-compose.yml, consul/ (carregador de configurações) e observabilidade
+│   └── scripts/seed-inventory.sh — estoque inicial para testes
 │
 ├── start_consul.bat
 │   └── Inicialização e configuração do Consul no Windows
