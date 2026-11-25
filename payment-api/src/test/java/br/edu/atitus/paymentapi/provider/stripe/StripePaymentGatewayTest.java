@@ -98,6 +98,16 @@ class StripePaymentGatewayTest {
     }
 
     @Test
+    void appendsOrderIdToReturnUrls() {
+        assertThat(StripePaymentGateway.withOrderId(SUCCESS_URL, 42L))
+                .isEqualTo("http://localhost:5173/pagamento/sucesso?session_id={CHECKOUT_SESSION_ID}&order_id=42");
+        assertThat(StripePaymentGateway.withOrderId(CANCEL_URL, 42L))
+                .isEqualTo("http://localhost:5173/pagamento/cancelado?order_id=42");
+        assertThat(StripePaymentGateway.withOrderId("http://host/r?x=1#top", 7L))
+                .isEqualTo("http://host/r?x=1&order_id=7#top");
+    }
+
+    @Test
     void convertsAmountToCentsWithoutRounding() {
         assertThat(StripePaymentGateway.toMinorUnits(new BigDecimal("149.90"))).isEqualTo(14990L);
         assertThat(StripePaymentGateway.toMinorUnits(new BigDecimal("1"))).isEqualTo(100L);

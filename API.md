@@ -1800,9 +1800,9 @@ Regras gerais:
 
 1. Crie o pedido em `POST /ws/orders`. Ele fica `PENDING_PAYMENT` com reserva de estoque de 10 minutos.
 2. Chame `POST /ws/payments/orders/{orderId}/checkout-session` e redirecione o cliente para o `checkoutUrl` recebido.
-3. Ao terminar, o Stripe redireciona o cliente para a página de sucesso (com `session_id`) ou de cancelamento do frontend.
+3. Ao terminar, o Stripe redireciona o navegador para `GET /payments/return/success` (ou `/cancel`), que redireciona para o deep link do app com `order_id` (e `session_id`). Veja [Retorno do checkout](#retorno-do-checkout).
 4. Em paralelo, o Stripe notifica o webhook. O Payment API confirma o pedido no Order API e marca o pagamento como `APPROVED`.
-5. Na página de sucesso, consulte `GET /ws/payments/orders/{orderId}` até o status deixar de ser `PENDING`.
+5. Na tela de sucesso, consulte `GET /ws/payments/orders/{orderId}` (com o `order_id` recebido no deep link) até o status deixar de ser `PENDING`.
 
 ### Iniciar pagamento
 
@@ -1864,6 +1864,24 @@ Exige JWT de cliente. Retorna o pagamento mais recente do pedido do cliente. O f
 
 `checkoutUrl` só vem preenchido enquanto o pagamento está `PENDING`. Sem pagamento para o pedido, ou pedido de outro cliente: `404 Not Found`.
 
+### Retorno do checkout
+
+**`GET /payments/return/success?session_id=...&order_id=...`** e **`GET /payments/return/cancel?order_id=...`**
+
+Rotas públicas (sem JWT) usadas como `success_url` e `cancel_url` do Stripe. Respondem `302 Found` para o deep link do app configurado em `PAYMENT_APP_SUCCESS_URL` / `PAYMENT_APP_CANCEL_URL` (padrão `oma://payment/success` e `oma://payment/cancel`) e **não alteram nenhum status**.
+
+```http
+GET /payments/return/success?session_id=cs_test_a1B2&order_id=42
+
+HTTP/1.1 302 Found
+Location: oma://payment/success?order_id=42&session_id=cs_test_a1B2
+Cache-Control: no-store
+```
+
+- O `payment-api` acrescenta `order_id` às URLs de retorno de cada sessão; o app não precisa guardar o pedido antes de abrir o Stripe.
+- O destino vem só da configuração. Da requisição seguem apenas `order_id` (número positivo) e `session_id` (`cs_...`); valores com outro formato são descartados.
+- Use o `order_id` para consultar o pagamento. O `session_id` é apenas informativo.
+
 ### Estados e transições
 
 Os estados do pagamento são próprios e separados dos estados do pedido. As transições são controladas pelo backend a partir dos eventos validados do Stripe; estados finais não mudam, e eventos atrasados ou duplicados são ignorados. A única exceção é a aprovação que chega para um pagamento já `FAILED`, `EXPIRED` ou `CANCELLED`: o valor foi capturado e não será honrado, então é estornado e o pagamento passa a `REFUNDED`.
@@ -1888,7 +1906,7 @@ Os estados do pagamento são próprios e separados dos estados do pedido. As tra
 
 **`POST /payments/webhook`**
 
-Rota pública (sem JWT), chamada somente pelo Stripe e autenticada pela assinatura do cabeçalho `Stripe-Signature`. O Gateway encaminha o corpo e o cabeçalho sem alterações. Apenas esta rota fora de `/ws/` é exposta para o Payment API.
+Rota pública (sem JWT), chamada somente pelo Stripe e autenticada pela assinatura do cabeçalho `Stripe-Signature`. O Gateway encaminha o corpo e o cabeçalho sem alterações. Fora de `/ws/`, o Gateway expõe para o Payment API apenas esta rota e as de [retorno do checkout](#retorno-do-checkout).
 
 | Evento | Efeito |
 |---|---|
