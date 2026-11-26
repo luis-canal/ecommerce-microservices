@@ -1,14 +1,16 @@
 # Documentação da API
 
-Guia para integração com os fluxos de autenticação, catálogo e estoque deste repositório. As rotas abaixo são relativas à URL-base do **API Gateway**; a porta e o host dependem da configuração do ambiente.
+Guia para integração com os fluxos deste repositório. Os exemplos usam a URL-base do **API Gateway** `http://localhost:8080`; ajuste o host somente se o Gateway estiver publicado em outro endereço.
 
 ## Convenções
 
+- A URL-base usada nos exemplos é `http://localhost:8080`.
 - Envie e receba JSON com `Content-Type: application/json` e `Accept: application/json`, salvo respostas sem corpo. Respostas de erro usam `Content-Type: text/plain; charset=UTF-8`.
 - IDs são inteiros de 64 bits (`Long` no servidor); preços são números decimais.
 - Erros retornam uma mensagem em texto simples, específica para a causa sempre que possível. O Gateway preserva o status e o corpo de erro dos serviços; uma requisição protegida sem JWT válido recebe `401 Unauthorized` com `"Token ausente, inválido ou revogado."`. Falhas inesperadas retornam uma mensagem segura, sem detalhes técnicos.
 - As rotas `/ws/**` são protegidas pelo Gateway. Envie `Authorization: Bearer <token>`; **não** envie manualmente os cabeçalhos internos `X-User-Id`, `X-User-Type` ou `X-User-Email`. O Gateway os remove da requisição recebida do cliente e propaga os valores derivados do JWT.
 - Tokens JWT expiram em 24 horas. O logout revoga o token até a expiração.
+- As rotas internas marcadas neste documento são destinadas somente à comunicação entre serviços, nunca ao frontend. Placeholders como `<SERVICE_TOKEN>` e `<JWT_CLIENT>` são ilustrativos; não substitua por segredos em código ou documentação pública.
 - O tipo de usuário de cadastro público é sempre `Common`. A conta administradora é provisionada no banco; não há rota separada de login administrativo.
 
 ### Formato das falhas
@@ -2011,3 +2013,724 @@ Para reduzir esse caso, nenhuma sessão é criada nem reaproveitada quando a res
 O mesmo estorno acontece se a aprovação chegar para um pagamento já `FAILED`, `EXPIRED` ou `CANCELLED`: o caso é registrado em log de erro, o pedido não é confirmado e o pagamento passa a `REFUNDED`. O estorno é idempotente: se o Stripe informar que a cobrança já foi totalmente estornada (`charge_already_refunded`), o resultado é tratado como sucesso.
 
 **Limitação conhecida:** não há job de reconciliação. Se o estorno ou a confirmação falharem de forma permanente (por exemplo, o Stripe recusa o estorno ou o Order API responde sempre erro), o webhook responde `500` a cada tentativa e o Stripe reenvia o evento por cerca de 3 dias. Durante esse tempo o pagamento continua `PENDING`; se o problema não se resolver, o caso exige intervenção manual (conferir o pagamento no painel do Stripe, estornar ou confirmar o pedido e reenviar o evento).
+
+## Exemplos cURL auditados
+
+Os comandos desta seção completam os contratos acima com uma requisição por operação. Use placeholders para JWT e credenciais internas; não envie cabeçalhos `X-User-*` manualmente. Endpoints marcados como internos são destinados somente à comunicação entre serviços, nunca ao frontend.
+
+### Autenticação e câmbio
+
+**`POST /auth/signup`** — Cria uma conta comum.
+
+```bash
+curl -i -X POST 'http://localhost:8080/auth/signup' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"name":"Ana Silva","email":"ana@example.com","password":"senha-segura"}'
+```
+
+**`POST /auth/signin`** — Autentica uma conta comum.
+
+```bash
+curl -i -X POST 'http://localhost:8080/auth/signin' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"email":"ana@example.com","password":"senha-segura"}'
+```
+
+**`POST /auth/signin`** — Obtém JWT de uma conta administradora. Estas são as credenciais de desenvolvimento descritas na seção de login administrativo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/auth/signin' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"email":"admin@admin.dev","password":"teste"}'
+```
+
+**`POST /auth/logout`** — Revoga o JWT atual. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/auth/logout' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' \
+  -H 'Accept: application/json'
+```
+
+**`GET /currencies?source=USD&target=BRL`** — Consulta cotação pública entre duas moedas.
+
+```bash
+curl -i -X GET 'http://localhost:8080/currencies?source=USD&target=BRL' \
+  -H 'Accept: application/json'
+```
+
+### Produtos, imagens, categorias e subcategorias
+
+**`GET /products`** — Lista produtos públicos com filtros e paginação de exemplo.
+
+```bash
+curl -i -G 'http://localhost:8080/products' \
+  -H 'Accept: application/json' \
+  --data-urlencode 'name=cuia' \
+  --data-urlencode 'categoryId=2' \
+  --data-urlencode 'minPrice=50' \
+  --data-urlencode 'maxPrice=100' \
+  --data-urlencode 'sort=price,asc' \
+  --data-urlencode 'page=0' \
+  --data-urlencode 'size=10' \
+  --data-urlencode 'targetCurrency=BRL'
+```
+
+**`GET /products/{id}?targetCurrency=USD`** — Consulta um produto público pelo ID.
+
+```bash
+curl -i -X GET 'http://localhost:8080/products/17?targetCurrency=USD' \
+  -H 'Accept: application/json'
+```
+
+**`POST /ws/products`** — Cadastra produto; exige JWT de administrador.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/products' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"name":"Cuia artesanal","brand":"Marca Gaúcha","model":"CU-01","description":"Cuia de porongo","currency":"BRL","price":75.0,"image":"https://example.com/cuia.jpg","subcategoryId":7,"productType":"SINGLE_UNIT"}'
+```
+
+**`PUT /ws/products/{id}`** — Atualiza os campos editáveis do produto; exige JWT de administrador.
+
+```bash
+curl -i -X PUT 'http://localhost:8080/ws/products/17' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"name":"Cuia artesanal premium","brand":"Marca Gaúcha","model":"CU-01-P","description":"Cuia de porongo selecionado","currency":"BRL","price":89.9,"image":"https://example.com/cuia-premium.jpg","subcategoryId":7}'
+```
+
+**`PATCH /ws/products/{id}/status`** — Ativa ou desativa produto; exige JWT de administrador.
+
+```bash
+curl -i -X PATCH 'http://localhost:8080/ws/products/17/status' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"active":false}'
+```
+
+**`GET /ws/products`** — Lista produtos administrativos, incluindo filtro de status.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/products' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json' \
+  --data-urlencode 'status=ALL' \
+  --data-urlencode 'page=0' \
+  --data-urlencode 'size=10' \
+  --data-urlencode 'sort=name,asc'
+```
+
+**`GET /ws/products/{id}?targetCurrency=BRL`** — Consulta produto pelo ID, inclusive inativo; exige JWT de administrador.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/products/17?targetCurrency=BRL' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json'
+```
+
+**`POST /ws/products/{productId}/images`** — Envia imagem multipart; exige JWT de administrador.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/products/17/images' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json' \
+  -F 'file=@./cuia.png'
+```
+
+**`GET /ws/products/{productId}/images`** — Lista imagens do produto; exige JWT de administrador.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/products/17/images' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json'
+```
+
+**`PATCH /ws/products/{productId}/images/{imageId}/primary`** — Define imagem principal; exige JWT de administrador. Não envia corpo.
+
+```bash
+curl -i -X PATCH 'http://localhost:8080/ws/products/17/images/4/primary' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json'
+```
+
+**`DELETE /ws/products/{productId}/images/{imageId}`** — Remove imagem; exige JWT de administrador. Não envia corpo.
+
+```bash
+curl -i -X DELETE 'http://localhost:8080/ws/products/17/images/4' \
+  -H 'Authorization: Bearer <JWT_ADMIN>'
+```
+
+**`GET /categories`** — Lista categorias ativas.
+
+```bash
+curl -i -X GET 'http://localhost:8080/categories' -H 'Accept: application/json'
+```
+
+**`GET /categories/{id}/subcategories`** — Lista subcategorias ativas da categoria.
+
+```bash
+curl -i -X GET 'http://localhost:8080/categories/2/subcategories' \
+  -H 'Accept: application/json'
+```
+
+**`GET /ws/categories`** — Lista categorias administrativas, com paginação.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/categories' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json' \
+  --data-urlencode 'page=0' --data-urlencode 'size=10' --data-urlencode 'sort=name,asc'
+```
+
+**`GET /ws/categories/{id}/subcategories`** — Lista todas as subcategorias da categoria, incluindo inativas.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/categories/2/subcategories' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json' \
+  --data-urlencode 'page=0' --data-urlencode 'size=10' --data-urlencode 'sort=name,asc'
+```
+
+**`GET /ws/subcategories`** — Lista subcategorias administrativas, com paginação.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/subcategories' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Accept: application/json' \
+  --data-urlencode 'page=0' --data-urlencode 'size=10' --data-urlencode 'sort=name,asc'
+```
+
+**`POST /ws/categories`** — Cria categoria; exige JWT de administrador.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/categories' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"name":"Utensílios de mate"}'
+```
+
+**`PUT /ws/categories/{id}`** — Altera categoria; exige JWT de administrador.
+
+```bash
+curl -i -X PUT 'http://localhost:8080/ws/categories/2' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"name":"Utensílios para chimarrão"}'
+```
+
+**`PATCH /ws/categories/{id}/status`** — Ativa ou desativa categoria; exige JWT de administrador.
+
+```bash
+curl -i -X PATCH 'http://localhost:8080/ws/categories/2/status' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"active":false}'
+```
+
+**`POST /ws/subcategories`** — Cria subcategoria; exige JWT de administrador.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/subcategories' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"categoryId":2,"name":"Cuia personalizada"}'
+```
+
+**`PUT /ws/subcategories/{id}`** — Altera subcategoria; exige JWT de administrador.
+
+```bash
+curl -i -X PUT 'http://localhost:8080/ws/subcategories/7' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"categoryId":2,"name":"Porongo selecionado"}'
+```
+
+**`PATCH /ws/subcategories/{id}/status`** — Ativa ou desativa subcategoria; exige JWT de administrador.
+
+```bash
+curl -i -X PATCH 'http://localhost:8080/ws/subcategories/7/status' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  --data '{"active":false}'
+```
+
+### Estoque, reservas e consultas internas
+
+**`GET /ws/inventory/{productId}`** — Consulta estoque; exige JWT de administrador.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/inventory/101' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json'
+```
+
+**`GET /ws/inventory`** — Lista estoques com filtros e paginação; exige JWT de administrador.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/inventory' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'productType=MULTI_UNIT' --data-urlencode 'lowStock=true' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20'
+```
+
+**`GET /ws/inventory/{productId}/availability`** — Consulta disponibilidade para serviços internos; não usar no frontend.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/inventory/101/availability' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json'
+```
+
+**`POST /ws/inventory/availability/batch`** — Consulta disponibilidade de produtos em lote para serviços internos; não usar no frontend.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/availability/batch' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"productIds":[101,102]}'
+```
+
+**`POST /ws/inventory/{productId}/registration`** — Registra produto no estoque; exige JWT de administrador. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/101/registration' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json'
+```
+
+**`POST /ws/inventory/{productId}/entries`** — Registra entrada física; exige JWT de administrador.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/101/entries' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"quantity":5,"reason":"Reposição de mercadoria"}'
+```
+
+**`POST /ws/inventory/{productId}/exits`** — Registra saída manual; exige JWT de administrador.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/101/exits' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"quantity":1,"reason":"Baixa manual"}'
+```
+
+**`POST /ws/inventory/{productId}/adjustments`** — Ajusta quantidade física; exige JWT de administrador.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/101/adjustments' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"newQuantity":12,"reason":"Contagem física"}'
+```
+
+**`PATCH /ws/inventory/{productId}/low-stock-threshold`** — Define limite de estoque baixo; exige JWT de administrador.
+
+```bash
+curl -i -X PATCH 'http://localhost:8080/ws/inventory/101/low-stock-threshold' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"threshold":3}'
+```
+
+**`GET /ws/inventory/{productId}/movements`** — Consulta movimentos de um produto; exige JWT de administrador.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/inventory/101/movements' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'movementType=ENTRY' \
+  --data-urlencode 'from=2026-11-01T00:00:00Z' \
+  --data-urlencode 'to=2026-11-26T23:59:59Z' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20'
+```
+
+**`GET /ws/inventory/movements`** — Consulta movimentos gerais; exige JWT de administrador.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/inventory/movements' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'productId=101' --data-urlencode 'movementType=ENTRY' \
+  --data-urlencode 'from=2026-11-01T00:00:00Z' \
+  --data-urlencode 'to=2026-11-26T23:59:59Z' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20'
+```
+
+As quatro rotas seguintes são consultas de coleta do Analytics, exclusivamente para comunicação entre serviços; não são destinadas ao frontend.
+
+**`GET /ws/inventory/analytics/summary`** — Retorna resumo agregado do estoque.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/inventory/analytics/summary' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json'
+```
+
+**`GET /ws/inventory/analytics/out-of-stock`** — Lista estoques sem disponibilidade.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/inventory/analytics/out-of-stock' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20'
+```
+
+**`GET /ws/inventory/analytics/low-stock`** — Lista estoques no limite baixo.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/inventory/analytics/low-stock' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20'
+```
+
+**`GET /ws/inventory/analytics/movements`** — Lista movimentos para coleta; filtros `from` e `to` são obrigatórios.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/inventory/analytics/movements' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-11-01T00:00:00Z' \
+  --data-urlencode 'to=2026-11-26T23:59:59Z' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20'
+```
+
+As rotas de reserva são serviço-a-serviço (Order API ↔ Inventory API); não são destinadas ao frontend. O Gateway aceita `<SERVICE_TOKEN>` nessas rotas.
+
+**`POST /ws/inventory/reservations`** — Cria reserva multi-item atômica.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/reservations' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"orderId":9001,"items":[{"productId":101,"quantity":3},{"productId":102,"quantity":1}]}'
+```
+
+**`GET /ws/inventory/reservations/{reservationId}`** — Consulta estado e itens da reserva.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/inventory/reservations/8' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json'
+```
+
+**`POST /ws/inventory/reservations/{reservationId}/confirm`** — Confirma reserva e baixa estoque. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/reservations/8/confirm' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json'
+```
+
+**`POST /ws/inventory/reservations/{reservationId}/release`** — Libera reserva. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/inventory/reservations/8/release' \
+  -H 'X-Service-Token: <SERVICE_TOKEN>' -H 'Accept: application/json'
+```
+
+### Pedidos e carrinho
+
+**`POST /ws/orders`** — Cria pedido para o cliente autenticado.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/orders' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' \
+  -H 'Idempotency-Key: pedido-cliente-7-001' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"items":[{"productId":101,"quantity":3},{"productId":102,"quantity":1}],"shippingAddress":{"zipCode":"99000-000","street":"Rua das Flores","number":"150","complement":"Apartamento 202","neighborhood":"Centro","city":"Passo Fundo","state":"RS"}}'
+```
+
+**`GET /ws/orders`** — Lista pedidos do cliente autenticado.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/orders' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json' \
+  --data-urlencode 'targetCurrency=BRL' \
+  --data-urlencode 'page=0' --data-urlencode 'size=5' \
+  --data-urlencode 'sort=orderDate,desc'
+```
+
+**`GET /ws/orders/{orderId}`** — Consulta pedido pertencente ao cliente autenticado.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/orders/42' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`GET /ws/admin/orders`** — Lista pedidos com filtros administrativos; exige JWT de administrador.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/orders' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'status=PENDING_PAYMENT' --data-urlencode 'customerId=7' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20' \
+  --data-urlencode 'sort=orderDate,desc'
+```
+
+**`GET /ws/admin/orders/{orderId}`** — Consulta detalhes administrativos do pedido; exige JWT de administrador.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/admin/orders/42' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json'
+```
+
+**`POST /ws/admin/orders/{orderId}/cancel`** — Cancela pedido via operação administrativa; exige JWT de administrador. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/admin/orders/42/cancel' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json'
+```
+
+As quatro rotas seguintes são internas ao fluxo de pedidos, pagamentos e analytics; nunca devem ser chamadas pelo frontend. Os exemplos usam JWT apenas para atravessar o Gateway local. Chamadas entre serviços usam a credencial interna diretamente na rede dos serviços, fora deste Gateway.
+
+**`GET /ws/orders/internal/analytics`** — Fornece pedidos atualizados ao Analytics; `updatedAfter` é obrigatório.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/orders/internal/analytics' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json' \
+  --data-urlencode 'updatedAfter=2026-11-01T00:00:00Z' \
+  --data-urlencode 'page=0' --data-urlencode 'size=100'
+```
+
+**`GET /ws/orders/internal/{orderId}/payment-info`** — Fornece ao Payment API os dados mínimos para iniciar/validar pagamento.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/orders/internal/42/payment-info' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`POST /ws/orders/{orderId}/confirm`** — Transição interna chamada após aprovação do pagamento. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/orders/42/confirm' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`POST /ws/orders/{orderId}/cancel`** — Transição interna para cancelar pedido e liberar reserva. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/orders/42/cancel' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`GET /ws/cart`** — Consulta o carrinho do cliente autenticado.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/cart' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`POST /ws/cart/items`** — Adiciona produto ou substitui sua quantidade no carrinho.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/cart/items' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"productId":17,"quantity":2}'
+```
+
+**`PATCH /ws/cart/items/{productId}`** — Altera quantidade de item no carrinho.
+
+```bash
+curl -i -X PATCH 'http://localhost:8080/ws/cart/items/17' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"quantity":3}'
+```
+
+**`DELETE /ws/cart/items/{productId}`** — Remove um item do carrinho. Não envia corpo.
+
+```bash
+curl -i -X DELETE 'http://localhost:8080/ws/cart/items/17' \
+  -H 'Authorization: Bearer <JWT_CLIENT>'
+```
+
+**`DELETE /ws/cart/items`** — Limpa o carrinho após criação do pedido. Não envia corpo.
+
+```bash
+curl -i -X DELETE 'http://localhost:8080/ws/cart/items' \
+  -H 'Authorization: Bearer <JWT_CLIENT>'
+```
+
+### Analytics administrativo
+
+Todas estas rotas exigem JWT de administrador.
+
+**`GET /ws/admin/analytics/overview`** — Retorna resumo de vendas para período e filtros.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/overview' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'region=SUL' --data-urlencode 'state=RS' \
+  --data-urlencode 'categoryId=2' --data-urlencode 'productId=17'
+```
+
+**`GET /ws/admin/analytics/sales`** — Consulta série temporal de vendas.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/sales' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'granularity=DAY' --data-urlencode 'region=SUL'
+```
+
+**`GET /ws/admin/analytics/sales/by-region`** — Resume vendas por região e estado.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/sales/by-region' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'state=RS'
+```
+
+**`GET /ws/admin/analytics/products/top`** — Lista produtos mais vendidos por unidades ou faturamento.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/products/top' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'rankBy=REVENUE' --data-urlencode 'limit=10'
+```
+
+**`GET /ws/admin/analytics/categories`** — Consulta desempenho por categoria e marca.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/categories' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'limit=20'
+```
+
+**`GET /ws/admin/analytics/price-ranges`** — Consulta vendas por faixa de preço.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/price-ranges' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'productId=17'
+```
+
+**`GET /ws/admin/analytics/inventory`** — Consulta indicadores e histórico do estoque.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/inventory' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'granularity=DAY' --data-urlencode 'limit=50'
+```
+
+**`GET /ws/admin/analytics/inventory/movements`** — Consulta movimentações coletadas do estoque.
+
+```bash
+curl -i -G 'http://localhost:8080/ws/admin/analytics/inventory/movements' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json' \
+  --data-urlencode 'from=2026-10-01' --data-urlencode 'to=2026-10-31' \
+  --data-urlencode 'productId=17' --data-urlencode 'movementType=ENTRY' \
+  --data-urlencode 'page=0' --data-urlencode 'size=20'
+```
+
+**`GET /ws/admin/analytics/collections`** — Consulta situação e histórico das coletas.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/admin/analytics/collections' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json'
+```
+
+**`POST /ws/admin/analytics/collections/run`** — Dispara coleta imediata. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/admin/analytics/collections/run' \
+  -H 'Authorization: Bearer <JWT_ADMIN>' -H 'Accept: application/json'
+```
+
+### Pagamentos e rotas públicas de retorno
+
+**`POST /ws/payments/orders/{orderId}/checkout-session`** — Inicia checkout do pedido do cliente. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/payments/orders/42/checkout-session' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`GET /ws/payments/orders/{orderId}`** — Consulta pagamento mais recente do pedido do cliente.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/payments/orders/42' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`GET /payments/return/success?session_id=cs_test_a1B2&order_id=42`** — Retorno público de sucesso do Stripe; redireciona ao app sem JWT.
+
+```bash
+curl -i -X GET 'http://localhost:8080/payments/return/success?session_id=cs_test_a1B2&order_id=42'
+```
+
+**`GET /payments/return/cancel?order_id=42`** — Retorno público de cancelamento do Stripe; redireciona ao app sem JWT.
+
+```bash
+curl -i -X GET 'http://localhost:8080/payments/return/cancel?order_id=42'
+```
+
+**`POST /payments/webhook`** — Webhook público autenticado pela assinatura Stripe; envie o payload original sem alterá-lo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/payments/webhook' \
+  -H 'Content-Type: application/json' \
+  -H 'Stripe-Signature: <STRIPE_SIGNATURE>' \
+  --data-binary '@./stripe-event.json'
+```
+
+### Aliases roteados, mas não destinados ao frontend
+
+O Gateway também roteia `/ws/auth/**` e `/ws/currencies/**`. Como o filtro global exige JWT em todo caminho `/ws/**`, use as rotas públicas `/auth/**` para cadastro/login e `/currencies` para câmbio público. Os exemplos `/ws/**` abaixo são apenas diagnósticos; não são alternativas públicas.
+
+**`POST /ws/auth/signup`** — Alias protegido de cadastro; exige JWT por causa do Gateway.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/auth/signup' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"name":"Ana Silva","email":"ana@example.com","password":"senha-segura"}'
+```
+
+**`POST /ws/auth/signin`** — Alias protegido de login; exige JWT prévio pelo Gateway. Use `/auth/signin` no fluxo de login do frontend.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/auth/signin' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  --data '{"email":"ana@example.com","password":"senha-segura"}'
+```
+
+**`POST /ws/auth/logout`** — Alias protegido de logout. Não envia corpo.
+
+```bash
+curl -i -X POST 'http://localhost:8080/ws/auth/logout' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+**`GET /ws/currencies?source=USD&target=BRL`** — Alias de câmbio protegido pelo Gateway; use `/currencies` para acesso público.
+
+```bash
+curl -i -X GET 'http://localhost:8080/ws/currencies?source=USD&target=BRL' \
+  -H 'Authorization: Bearer <JWT_CLIENT>' -H 'Accept: application/json'
+```
+
+## Resultado da conferência com o Gateway
+
+A configuração atual do Gateway roteia 79 combinações método/caminho de controllers: 22 de catálogo (produtos, imagens, categorias e subcategorias), 6 de autenticação contando os aliases `/auth` e `/ws/auth`, 2 de câmbio, 19 de estoque/reservas, 10 de pedidos, 5 de carrinho, 10 de analytics e 5 de pagamentos. Cada combinação tem um exemplo cURL nesta seção; algumas operações de login têm exemplos separados para conta comum e administrador.
+
+Diferenças e limites confirmados:
+
+- `/ws/auth/signup`, `/ws/auth/signin` e `/ws/auth/logout` são aliases reais do controller e são roteados, mas o filtro global do Gateway exige JWT em `/ws/**`. Portanto, login e cadastro públicos devem usar `/auth/signup` e `/auth/signin`.
+- `/ws/currencies` também é roteado e protegido por JWT, enquanto `/currencies` é o caminho público recomendado.
+- `/internal/products/{productId}/inventory-data`, `/internal/products/{productId}/cart-data` e `/internal/auth/token-revocation/check` existem em controllers/serviços, mas não têm rota no Gateway. São exclusivamente internos e não têm URL `localhost:8080` nem cURL válido através do Gateway. O texto anterior que menciona `GET /internal/products/{productId}/cart-data` descreve uma chamada interna do cart-api, não uma API de frontend.
+- A documentação anterior não apresentava cURLs para os endpoints listados em tabelas (imagens, estoque, reservas, gerenciamento administrativo de pedidos, remoção do carrinho e vários endpoints internos). Os exemplos desta seção cobrem esses contratos sem alterar as APIs.
+- `/ws/inventory/**` aceita `<SERVICE_TOKEN>` em chamadas internas pelo Gateway; em rotas administrativas, use JWT de administrador. As chamadas internas do order-api com `<SERVICE_TOKEN>` devem ocorrer diretamente entre serviços, não pelo Gateway. Os cURLs internos do pedido nesta documentação são apenas chamadas de diagnóstico ao Gateway e não devem ser usados pelo frontend.
