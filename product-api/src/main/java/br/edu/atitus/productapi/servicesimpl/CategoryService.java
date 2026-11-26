@@ -9,6 +9,8 @@ import br.edu.atitus.productapi.repositories.CategoryRepository;
 import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,12 @@ public class CategoryService {
     }
 
     @Transactional(readOnly = true)
+    public Page<CategoryResponse> findAllForAdmin(Pageable pageable) {
+        return categoryRepository.findAllByOrderByNameAsc(pageable)
+                .map(CategoryResponse::fromEntity);
+    }
+
+    @Transactional(readOnly = true)
     public List<SubcategoryResponse> findActiveSubcategories(Long categoryId) {
         var category = categoryRepository.findById(categoryId)
                 .filter(CategoryEntity::isActive)
@@ -50,6 +58,15 @@ public class CategoryService {
                 .stream()
                 .map(SubcategoryResponse::fromEntity)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<SubcategoryResponse> findSubcategoriesForAdmin(Long categoryId, Pageable pageable) {
+        if (!categoryRepository.existsById(categoryId)) {
+            throw new EntityNotFoundException("Categoria não encontrada");
+        }
+        return subcategoryRepository.findAllByCategory_IdOrderByNameAsc(categoryId, pageable)
+                .map(SubcategoryResponse::fromEntity);
     }
 
     @Transactional

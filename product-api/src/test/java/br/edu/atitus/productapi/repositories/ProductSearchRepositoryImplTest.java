@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DataJpaTest(properties = {
         "spring.cloud.consul.enabled=false",
@@ -58,11 +59,20 @@ class ProductSearchRepositoryImplTest {
     private ProductRepository repository;
 
     @Autowired
+    private CategoryRepository categoryRepository;
+
+    @Autowired
+    private SubcategoryRepository subcategoryRepository;
+
+    @Autowired
     private EntityManager entityManager;
 
     private CategoryEntity activeCategory;
+    private CategoryEntity inactiveCategory;
     private SubcategoryEntity activeSubcategory;
+    private SubcategoryEntity inactiveSubcategory;
     private SubcategoryEntity subcategoryOfInactiveCategory;
+    private SubcategoryEntity inactiveSubcategoryOfInactiveCategory;
 
     @BeforeEach
     void seed() {
@@ -70,10 +80,15 @@ class ProductSearchRepositoryImplTest {
         entityManager.createQuery("delete from ProductEntity").executeUpdate();
 
         activeCategory = category("Categoria status ativa", true);
-        CategoryEntity inactiveCategory = category("Categoria status inativa", false);
+        inactiveCategory = category("Categoria status inativa", false);
         activeSubcategory = subcategory(activeCategory, "Sub ativa", true);
-        SubcategoryEntity inactiveSubcategory = subcategory(activeCategory, "Sub inativa", false);
+        inactiveSubcategory = subcategory(activeCategory, "Sub inativa", false);
         subcategoryOfInactiveCategory = subcategory(inactiveCategory, "Sub da categoria inativa", true);
+        inactiveSubcategoryOfInactiveCategory = subcategory(
+                inactiveCategory,
+                "Sub inativa da categoria inativa",
+                false
+        );
 
         product("Cuia ativa barata", activeSubcategory, true, "BRL", "50.00");
         product("Cuia ativa cara", activeSubcategory, true, "BRL", "150.00");
@@ -86,6 +101,33 @@ class ProductSearchRepositoryImplTest {
         product("Garrafa importada inativa", activeSubcategory, false, "USD", "10.00");
         entityManager.flush();
         entityManager.clear();
+    }
+
+    @Test
+    void administrativeCategoryAndSubcategoryQueriesIncludeInactiveEntities() {
+        var pageable = PageRequest.of(0, 100, Sort.by("name"));
+
+        var categories = categoryRepository.findAllByOrderByNameAsc(pageable);
+        assertTrue(categories.getContent().stream()
+                .anyMatch(category -> category.getId().equals(activeCategory.getId())));
+        assertTrue(categories.getContent().stream()
+                .anyMatch(category -> category.getId().equals(inactiveCategory.getId())));
+
+        var subcategories = subcategoryRepository.findAllByOrderByNameAsc(pageable);
+        assertTrue(subcategories.getContent().stream()
+                .anyMatch(subcategory -> subcategory.getId().equals(inactiveSubcategory.getId())));
+        assertTrue(subcategories.getContent().stream()
+                .anyMatch(subcategory -> subcategory.getId().equals(inactiveSubcategoryOfInactiveCategory.getId())));
+
+        var childrenOfInactiveCategory = subcategoryRepository.findAllByCategory_IdOrderByNameAsc(
+                inactiveCategory.getId(),
+                pageable
+        );
+        assertEquals(2, childrenOfInactiveCategory.getTotalElements());
+        assertTrue(childrenOfInactiveCategory.getContent().stream()
+                .anyMatch(subcategory -> subcategory.getId().equals(subcategoryOfInactiveCategory.getId())));
+        assertTrue(childrenOfInactiveCategory.getContent().stream()
+                .anyMatch(subcategory -> subcategory.getId().equals(inactiveSubcategoryOfInactiveCategory.getId())));
     }
 
     @Test

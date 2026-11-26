@@ -736,6 +736,27 @@ Lista categorias ativas, ordenadas por nome.
 |---|---|---|
 | `500 Internal Server Error` | Falha inesperada ao consultar categorias. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
 
+### Listar todas as categorias (administrador)
+
+**`GET /ws/categories`**
+
+Lista categorias ativas e inativas, ordenadas por nome por padrão. A resposta é paginada.
+
+**Autenticação:** Sim — administrador.
+
+**Query parameters:** `page` (padrão `0`), `size` (padrão `10`) e `sort` (padrão `name,asc`).
+
+**Sucesso — `200 OK`**
+
+Retorna uma página de objetos no mesmo formato de `GET /categories`, incluindo o campo `active`.
+
+**Erros comuns**
+
+| Status | Quando ocorre |
+|---|---|
+| `401 Unauthorized` | Token ausente, inválido ou revogado. |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. |
+
 ### Listar subcategorias de uma categoria
 
 **`GET /categories/{id}/subcategories`**
@@ -776,6 +797,52 @@ Lista subcategorias ativas, ordenadas por nome. Se a categoria não existir ou e
 | `400 Bad Request` | `id` não numérico. | `"Parâmetro inválido: id"` (texto simples) |
 | `404 Not Found` | Categoria inexistente ou inativa. | `"Categoria não encontrada ou inativa."` |
 | `500 Internal Server Error` | Falha inesperada ao consultar. | `"Ocorreu um erro interno. Tente novamente mais tarde."` |
+
+### Listar todas as subcategorias (administrador)
+
+**`GET /ws/subcategories`**
+
+Lista subcategorias ativas e inativas, ordenadas por nome por padrão. A resposta é paginada.
+
+**Autenticação:** Sim — administrador.
+
+**Query parameters:** `page` (padrão `0`), `size` (padrão `10`) e `sort` (padrão `name,asc`).
+
+**Sucesso — `200 OK`**
+
+Retorna uma página de objetos no mesmo formato de `GET /categories/{id}/subcategories`, incluindo o campo `active`.
+
+**Erros comuns**
+
+| Status | Quando ocorre |
+|---|---|
+| `401 Unauthorized` | Token ausente, inválido ou revogado. |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. |
+
+### Listar subcategorias de uma categoria (administrador)
+
+**`GET /ws/categories/{id}/subcategories`**
+
+Lista as subcategorias ativas e inativas da categoria indicada, mesmo que a categoria esteja inativa. A resposta é paginada e ordenada por nome por padrão. Se a categoria não existir, retorna `404`.
+
+**Autenticação:** Sim — administrador.
+
+**Path parameter:** `id` — ID da categoria.
+
+**Query parameters:** `page` (padrão `0`), `size` (padrão `10`) e `sort` (padrão `name,asc`).
+
+**Sucesso — `200 OK`**
+
+Retorna uma página de objetos no mesmo formato de `GET /categories/{id}/subcategories`, incluindo o campo `active`.
+
+**Erros comuns**
+
+| Status | Quando ocorre |
+|---|---|
+| `400 Bad Request` | `id` não numérico. |
+| `401 Unauthorized` | Token ausente, inválido ou revogado. |
+| `403 Forbidden` | Usuário autenticado sem permissão administrativa. |
+| `404 Not Found` | Categoria não encontrada. |
 
 ### Criar categoria
 

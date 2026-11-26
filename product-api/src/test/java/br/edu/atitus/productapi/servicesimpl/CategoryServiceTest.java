@@ -9,6 +9,8 @@ import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -47,6 +49,22 @@ class CategoryServiceTest {
         assertEquals(1, categories.size());
         assertEquals("Erva-mate", categories.getFirst().name());
         verify(categoryRepository).findAllByActiveTrueOrderByNameAsc();
+    }
+
+    @Test
+    void listsAllCategoriesIncludingInactiveWithPagination() {
+        var activeCategory = category(1L, "Erva-mate", true);
+        var inactiveCategory = category(2L, "Cuias", false);
+        var pageable = PageRequest.of(0, 10);
+        when(categoryRepository.findAllByOrderByNameAsc(pageable))
+                .thenReturn(new PageImpl<>(List.of(activeCategory, inactiveCategory), pageable, 2));
+
+        var result = service.findAllForAdmin(pageable);
+
+        assertEquals(2, result.getTotalElements());
+        assertTrue(result.getContent().get(0).active());
+        assertFalse(result.getContent().get(1).active());
+        verify(categoryRepository).findAllByOrderByNameAsc(pageable);
     }
 
     @Test
@@ -106,6 +124,37 @@ class CategoryServiceTest {
 
         category.setActive(false);
         assertThrows(EntityNotFoundException.class, () -> service.findActiveSubcategories(1L));
+    }
+
+    @Test
+    void listsSubcategoriesForInactiveCategoryIncludingInactiveSubcategories() {
+        var inactiveCategory = category(1L, "Erva-mate", false);
+        var inactiveSubcategory = new SubcategoryEntity();
+        inactiveSubcategory.setId(5L);
+        inactiveSubcategory.setCategory(inactiveCategory);
+        inactiveSubcategory.setName("Tradicional");
+        inactiveSubcategory.setSlug("tradicional");
+        inactiveSubcategory.setActive(false);
+        var pageable = PageRequest.of(0, 10);
+        when(categoryRepository.existsById(1L)).thenReturn(true);
+        when(subcategoryRepository.findAllByCategory_IdOrderByNameAsc(1L, pageable))
+                .thenReturn(new PageImpl<>(List.of(inactiveSubcategory), pageable, 1));
+
+        var result = service.findSubcategoriesForAdmin(1L, pageable);
+
+        assertEquals(1, result.getTotalElements());
+        assertFalse(result.getContent().getFirst().active());
+        assertEquals("Erva-mate", result.getContent().getFirst().categoryName());
+        verify(subcategoryRepository).findAllByCategory_IdOrderByNameAsc(1L, pageable);
+    }
+
+    @Test
+    void returnsNotFoundWhenListingSubcategoriesForMissingCategory() {
+        var pageable = PageRequest.of(0, 10);
+        when(categoryRepository.existsById(99L)).thenReturn(false);
+
+        assertThrows(EntityNotFoundException.class, () -> service.findSubcategoriesForAdmin(99L, pageable));
+        verify(subcategoryRepository, never()).findAllByCategory_IdOrderByNameAsc(99L, pageable);
     }
 
     private CategoryEntity category(Long id, String name, boolean active) {

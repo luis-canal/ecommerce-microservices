@@ -6,6 +6,10 @@ import br.edu.atitus.productapi.servicesimpl.SubcategoryService;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -17,6 +21,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
+
+import java.util.List;
 
 class CategoryControllerTest {
 
@@ -33,10 +39,10 @@ class CategoryControllerTest {
         categoryMvc = standaloneSetup(
                 new CategoryController(categoryService),
                 new WsCategoryController(categoryService, authorizationService)
-        ).build();
+        ).setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver()).build();
         subcategoryMvc = standaloneSetup(
                 new WsSubcategoryController(subcategoryService, authorizationService)
-        ).build();
+        ).setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver()).build();
     }
 
     @Test
@@ -56,6 +62,58 @@ class CategoryControllerTest {
 
         categoryMvc.perform(get("/categories/8/subcategories"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void administrativeCategoryAndSubcategoryListsArePaginated() throws Exception {
+        when(categoryService.findAllForAdmin(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+        when(categoryService.findSubcategoriesForAdmin(org.mockito.ArgumentMatchers.eq(8L),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+        when(subcategoryService.findAllForAdmin(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+        categoryMvc.perform(get("/ws/categories")
+                        .param("page", "1")
+                        .param("size", "5")
+                        .param("sort", "name,desc")
+                        .header("X-User-Type", 0))
+                .andExpect(status().isOk());
+        categoryMvc.perform(get("/ws/categories/8/subcategories")
+                        .param("page", "1")
+                        .param("size", "5")
+                        .param("sort", "name,desc")
+                        .header("X-User-Type", 0))
+                .andExpect(status().isOk());
+        subcategoryMvc.perform(get("/ws/subcategories")
+                        .param("page", "1")
+                        .param("size", "5")
+                        .param("sort", "name,desc")
+                        .header("X-User-Type", 0))
+                .andExpect(status().isOk());
+
+        var pageable = PageRequest.of(1, 5, Sort.by(Sort.Direction.DESC, "name"));
+        verify(categoryService).findAllForAdmin(pageable);
+        verify(categoryService).findSubcategoriesForAdmin(8L, pageable);
+        verify(subcategoryService).findAllForAdmin(pageable);
+    }
+
+    @Test
+    void administrativeCategoryAndSubcategoryListsRequireAdmin() throws Exception {
+        categoryMvc.perform(get("/ws/categories").header("X-User-Type", 2))
+                .andExpect(status().isForbidden());
+        categoryMvc.perform(get("/ws/categories/8/subcategories").header("X-User-Type", 2))
+                .andExpect(status().isForbidden());
+        subcategoryMvc.perform(get("/ws/subcategories").header("X-User-Type", 2))
+                .andExpect(status().isForbidden());
+
+        verify(categoryService, never()).findAllForAdmin(org.mockito.ArgumentMatchers.any());
+        verify(categoryService, never()).findSubcategoriesForAdmin(
+                org.mockito.ArgumentMatchers.eq(8L),
+                org.mockito.ArgumentMatchers.any()
+        );
+        verify(subcategoryService, never()).findAllForAdmin(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

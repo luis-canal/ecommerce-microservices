@@ -8,6 +8,8 @@ import br.edu.atitus.productapi.repositories.CategoryRepository;
 import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,12 @@ public class SubcategoryService {
         this.categoryRepository = categoryRepository;
         this.subcategoryRepository = subcategoryRepository;
         this.slugGenerator = slugGenerator;
+    }
+
+    @Transactional(readOnly = true)
+    public Page<SubcategoryResponse> findAllForAdmin(Pageable pageable) {
+        return subcategoryRepository.findAllByOrderByNameAsc(pageable)
+                .map(SubcategoryResponse::fromEntity);
     }
 
     @Transactional

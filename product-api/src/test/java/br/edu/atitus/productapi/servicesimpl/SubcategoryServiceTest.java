@@ -9,8 +9,11 @@ import br.edu.atitus.productapi.repositories.SubcategoryRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -34,6 +37,26 @@ class SubcategoryServiceTest {
         categoryRepository = mock(CategoryRepository.class);
         subcategoryRepository = mock(SubcategoryRepository.class);
         service = new SubcategoryService(categoryRepository, subcategoryRepository, new SlugGenerator());
+    }
+
+    @Test
+    void listsAllSubcategoriesIncludingInactiveWithPagination() {
+        var subcategory = new SubcategoryEntity();
+        subcategory.setId(4L);
+        subcategory.setCategory(category(1L, false));
+        subcategory.setName("Tradicional");
+        subcategory.setSlug("tradicional");
+        subcategory.setActive(false);
+        var pageable = PageRequest.of(0, 10);
+        when(subcategoryRepository.findAllByOrderByNameAsc(pageable))
+                .thenReturn(new PageImpl<>(List.of(subcategory), pageable, 1));
+
+        var result = service.findAllForAdmin(pageable);
+
+        assertEquals(1, result.getTotalElements());
+        assertFalse(result.getContent().getFirst().active());
+        assertEquals("Erva-mate", result.getContent().getFirst().categoryName());
+        verify(subcategoryRepository).findAllByOrderByNameAsc(pageable);
     }
 
     @Test
