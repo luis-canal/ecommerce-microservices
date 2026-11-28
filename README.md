@@ -1,5 +1,56 @@
 # OMA — E-commerce de Artigos Gaúchos
 
+## Como rodar e testar (professor)
+
+Não é preciso editar arquivos, criar `docker/.env`, ter chaves do Stripe ou configurar IP. O pagamento é **simulado**: nada é cobrado.
+
+**Antes de começar:** Git, Docker Desktop **aberto** (Docker Compose 2.24 ou superior), Node.js 22.13 ou superior (ou 24.3 ou superior), internet, cerca de 4 GB de memória livres e as portas `8080`, `8081` e `8500` livres. Use o **PowerShell** e mantenha a mesma janela do passo 1 ao 4.
+
+**1. Clone os dois repositórios** (back-end e app), lado a lado:
+
+```powershell
+git clone https://github.com/luis-canal/ecommerce-microservices.git
+git clone https://github.com/KaikiPauletto/Front-End-OMA.git
+cd ecommerce-microservices
+```
+
+**2. Suba o back-end.** Na primeira vez, o comando baixa imagens e compila os nove serviços: reserve **de 5 a 15 minutos**, conforme a internet e a máquina.
+
+```powershell
+docker compose --parallel 1 -f docker/docker-compose.yml up --build -d
+```
+
+**3. Espere os serviços ficarem prontos** (mais **1 a 2 minutos** depois que o passo 2 termina). O comando abaixo se encerra sozinho ao mostrar `9/9`:
+
+```powershell
+do {
+  Start-Sleep -Seconds 10
+  $prontos = @(try { (Invoke-RestMethod http://localhost:8500/v1/health/state/passing).ServiceName | Where-Object { $_ -like '*-api' } | Sort-Object -Unique } catch {})
+  "$($prontos.Count)/9 servicos prontos"
+} until ($prontos.Count -ge 9)
+```
+
+**4. Suba o app no navegador.** Ele abre em `http://localhost:8081`; a primeira carga pode levar cerca de 1 minuto.
+
+```powershell
+cd ..\Front-End-OMA
+npm.cmd install
+npm.cmd run web
+```
+
+**5. Faça uma compra** com o cliente de teste:
+
+| Perfil | E-mail | Senha |
+|---|---|---|
+| Cliente | `ana.bertoldi@demo.example.com` | `Demo@2026` |
+| Administrador (opcional) | `admin@admin.dev` | `teste` |
+
+**Entrar** → escolha um produto → **Adicionar ao carrinho** → **Seguir para o carrinho** → **Continuar** → digite o CEP `99010-000`, preencha rua, número e bairro → **Finalizar compra**. Resultado esperado: **Pedido registrado**, `CONFIRMED`, `Pagamento: APPROVED` e o aviso **Pagamento simulado**; em **Ver meus pedidos**, o pedido aparece como **Confirmado**. A tela de checkout cita o Stripe, mas no modo padrão ele não é usado. O estoque de demonstração já vem carregado; peças únicas (cuias) só podem ser compradas uma vez.
+
+**Para encerrar:** `Ctrl+C` no terminal do app e, na pasta `ecommerce-microservices`, `docker compose -f docker/docker-compose.yml down` (acrescente `-v` para apagar os dados e voltar ao estado inicial). Depois de reiniciar o computador ou o Docker Desktop, rode esse `down` (sem `-v`) e repita os passos 2 e 3.
+
+## Sobre o projeto
+
 Projeto acadêmico de um **e-commerce de artigos gaúchos**, desenvolvido com arquitetura de microsserviços utilizando Java e Spring Boot.
 
 A aplicação é composta por nove microsserviços independentes: autenticação, catálogo de produtos, controle de estoque, conversão de moedas, carrinho, pedidos, pagamentos e API Gateway. Os serviços utilizam PostgreSQL para persistência, Flyway para versionamento do banco de dados e integração HTTP para comunicação entre aplicações.
@@ -22,7 +73,7 @@ O projeto é organizado em nove microsserviços:
 | `cart-api` | Carrinho persistente por cliente, quantidades desejadas e estimativa de subtotal. |
 | `order-api` | Checkout, valores definitivos, frete, pedidos e coordenação da reserva atômica de estoque. |
 | `analytics-api` | Coleta periódica de pedidos e estoque, agregações e indicadores para o painel administrativo. |
-| `payment-api` | Pagamento dos pedidos com Stripe Checkout (modo teste), estados do pagamento e webhooks do Stripe. |
+| `payment-api` | Pagamento dos pedidos em modo simulado (padrão acadêmico) ou com Stripe Checkout (modo teste), estados do pagamento e webhooks do Stripe. |
 
 ### Fluxo de comunicação
 
@@ -50,7 +101,7 @@ CLIENTE -> GATEWAY API -> PAYMENT API -> ORDER API (payment-info, confirm, cance
                               +--(webhook)--> GATEWAY API -> PAYMENT API
 ```
 
-O `payment-api` consulta o pedido no `order-api` antes de criar a sessão de pagamento no Stripe e, ao receber o webhook do Stripe, confirma ou cancela o pedido pelas rotas internas. O `order-api` não conhece o Stripe, e nenhum outro serviço depende do `payment-api`.
+O `payment-api` consulta o pedido no `order-api` antes de criar a sessão de pagamento no Stripe e, ao receber o webhook do Stripe, confirma ou cancela o pedido pelas rotas internas. No [modo simulado](#modo-de-pagamento-simulado-ou-stripe) (padrão), o Stripe não participa: o pedido é confirmado na própria chamada de checkout. O `order-api` não conhece o provedor, e nenhum outro serviço depende do `payment-api`.
 
 O `analytics-api` não participa do fluxo síncrono de compra. Em intervalos configuráveis (padrão de 5 minutos), ele consulta os endpoints internos de analytics do `order-api` e do `inventory-api`, grava os dados em seu próprio banco e responde às consultas do painel administrativo a partir dessa cópia. Se o `analytics-api` estiver fora do ar, checkout e pedidos continuam funcionando; se uma origem estiver indisponível, a coleta é repetida no ciclo seguinte.
 
@@ -269,7 +320,10 @@ O serviço e seu banco dedicado utilizam, respectivamente, as portas 8700 e 5432
 
 ### 9. Pagamentos — `payment-api`
 
-Responsável pelo pagamento dos pedidos com o **Stripe Checkout em modo de teste**. Inicia o pagamento, acompanha os estados e comunica o resultado ao `order-api`, mantendo a integração com o provedor isolada do domínio de pedidos.
+Responsável pelo pagamento dos pedidos. Inicia o pagamento, acompanha os estados e comunica o resultado ao `order-api`, mantendo a integração com o provedor isolada do domínio de pedidos. Tem dois provedores, escolhidos por [`payment.provider`](#modo-de-pagamento-simulado-ou-stripe):
+
+- **`simulated` (padrão acadêmico):** aprova o pagamento na hora, sem chamadas externas e **sem nenhuma chave**. Não cobra nada e serve **somente para demonstração acadêmica**.
+- **`stripe`:** **Stripe Checkout em modo de teste**, descrito nos itens abaixo.
 
 - O valor e a moeda vêm sempre do `order-api`, por uma consulta interna autenticada; o frontend não envia preço.
 - O cliente é redirecionado para a página hospedada do Stripe; a loja nunca recebe dados de cartão.
@@ -285,9 +339,9 @@ Responsável pelo pagamento dos pedidos com o **Stripe Checkout em modo de teste
 |---|---|---|
 | POST | `/ws/payments/orders/{orderId}/checkout-session` | Inicia (ou reaproveita) o pagamento do pedido e devolve a URL do Checkout |
 | GET | `/ws/payments/orders/{orderId}` | Status do pagamento mais recente do pedido |
-| POST | `/payments/webhook` | Notificações do Stripe (pública, validada pela assinatura) |
+| POST | `/payments/webhook` | Notificações do Stripe (pública, validada pela assinatura; não usada no modo simulado) |
 
-Estados do pagamento: `CREATED`, `PENDING`, `APPROVED`, `FAILED`, `EXPIRED`, `CANCELLED` e `REFUNDED`. O serviço e seu banco dedicado (`payment_db`) utilizam, respectivamente, as portas 8800 e 5432 na rede Docker. O serviço só sobe com uma chave de teste do Stripe (`sk_test_` ou `rk_test_`) e sobe por padrão com o Compose. Os endpoints, as transições e o tratamento de falhas estão detalhados em [API.md](./API.md#pagamentos).
+Estados do pagamento: `CREATED`, `PENDING`, `APPROVED`, `FAILED`, `EXPIRED`, `CANCELLED` e `REFUNDED`. O serviço e seu banco dedicado (`payment_db`) utilizam, respectivamente, as portas 8800 e 5432 na rede Docker. O serviço sobe por padrão com o Compose, em modo simulado e sem credenciais; no modo `stripe`, só sobe com uma chave de teste do Stripe (`sk_test_` ou `rk_test_`). Os endpoints, as transições e o tratamento de falhas estão detalhados em [API.md](./API.md#pagamentos).
 
 ## Segurança
 
@@ -307,7 +361,7 @@ O `inventory-api` e o `cart-api` validam credenciais privadas do Gateway. As con
 
 As rotas `/ws/admin/analytics/**` exigem JWT de administrador: sem token o Gateway responde `401`, e usuários sem perfil de administrador recebem `403`. O `analytics-api` aceita somente requisições encaminhadas pelo Gateway com sua credencial privada; chamadas diretas ao serviço são rejeitadas. Para coletar dados, ele chama o `order-api` e o `inventory-api` com a credencial serviço-a-serviço.
 
-As rotas `/ws/payments/**` exigem JWT de cliente e chegam ao `payment-api` com sua credencial privada do Gateway; chamadas diretas são rejeitadas. A única rota pública do serviço é `POST /payments/webhook`, autenticada pela assinatura `Stripe-Signature` do Stripe. O `payment-api` chama as rotas internas do `order-api` (`payment-info`, `confirm` e `cancel`) com a credencial serviço-a-serviço; pelo Gateway, um cliente recebe `401` nessas rotas. A chave secreta do Stripe fica no KV do Consul (nunca no repositório), precisa ser de teste e nunca é registrada em log, assim como o corpo dos webhooks.
+As rotas `/ws/payments/**` exigem JWT de cliente e chegam ao `payment-api` com sua credencial privada do Gateway; chamadas diretas são rejeitadas. Nessas rotas o Gateway preserva o cabeçalho `Host` do cliente (usado no `checkoutUrl` simulado) e não encaminha `X-Forwarded-*` nem `Forwarded`. As rotas públicas do serviço são `POST /payments/webhook`, autenticada pela assinatura `Stripe-Signature` do Stripe (no modo simulado, rejeita tudo com `400`), e as de retorno `/payments/return/success` e `/payments/return/cancel`, que apenas redirecionam para o app. O `payment-api` chama as rotas internas do `order-api` (`payment-info`, `confirm` e `cancel`) com a credencial serviço-a-serviço; pelo Gateway, um cliente recebe `401` nessas rotas. A chave secreta do Stripe fica no KV do Consul (nunca no repositório), precisa ser de teste e nunca é registrada em log, assim como o corpo dos webhooks.
 
 ## Banco de dados e persistência
 
@@ -348,7 +402,7 @@ As configurações incluem propriedades de execução, conexão com PostgreSQL e
 
 Para o `analytics-api`, o script cadastra a porta, a conexão com o `analytics_db`, as URLs do `order-api` e do `inventory-api`, as credenciais internas e o intervalo da coleta periódica (`analytics.collection.interval-ms`).
 
-Para o `payment-api`, o script cadastra a porta, a conexão com o `payment_db`, a URL do `order-api`, as credenciais internas e a reserva mínima para abrir um checkout (`payment.min-reservation-seconds`, padrão `120`). O script também cadastra as credenciais do Stripe (`payment.stripe.*`), lidas de `docker/.env`.
+Para o `payment-api`, o script cadastra a porta, a conexão com o `payment_db`, a URL do `order-api`, as credenciais internas e a reserva mínima para abrir um checkout (`payment.min-reservation-seconds`, padrão `120`). O script também cadastra o provedor (`payment.provider`, a partir de `PAYMENT_PROVIDER`, padrão `simulated`) e as credenciais do Stripe (`payment.stripe.*`), lidos de `docker/.env`.
 
 Para o `product-api`, além da porta, do banco e da resiliência, o script cadastra as credenciais do armazenamento de imagens (`app.storage.*`), lidas de `docker/.env`.
 
@@ -363,9 +417,11 @@ O Consul em modo de desenvolvimento não oferece persistência dos dados de conf
 
 ## Requisitos
 
-Para executar o projeto localmente, são necessários:
+Com Docker Compose (recomendado), bastam Git e Docker Desktop: o build usa o Java e o Maven de dentro dos containers.
 
-- JDK 21.
+Para executar o projeto localmente, sem Docker, são necessários:
+
+- JDK 25 (o `auth-api` exige essa versão; os demais serviços usam Java 21).
 - Maven ou Maven Wrapper.
 - PostgreSQL.
 - HashiCorp Consul.
@@ -377,22 +433,15 @@ Para requisições de clientes, utilize somente a porta `8080` do Gateway. As po
 
 Por padrão, o Compose inicia todos os microsserviços: Consul e seu carregador de configuração, Gateway, Auth, Product, Currency, Inventory, Order, Payment, Cart e Analytics, com os respectivos bancos. Os builds são sequenciais para reduzir o pico de CPU, memória e disco.
 
-**Primeira execução:**
-
-1. Peça o arquivo `docker/.env` a quem montou o ambiente. O arquivo contém as credenciais externas (S3 e Stripe de teste) e não é versionado; envie-o somente por um canal privado.
-2. Coloque o arquivo na pasta `docker/` do repositório.
-3. Rode o Compose:
-
-```bash
-cd docker
-docker compose up --build -d
-```
-
-Sem o `docker/.env`, os serviços sobem, mas o upload de imagens falha e o `payment-api` não sobe. Para executar a partir da raiz do repositório:
+A partir da raiz do repositório:
 
 ```bash
 docker compose --parallel 1 -f docker/docker-compose.yml up --build -d
 ```
+
+Nenhuma configuração é necessária: sem o `docker/.env`, todos os serviços sobem, inclusive o `payment-api` (em [modo simulado](#modo-de-pagamento-simulado-ou-stripe)); apenas o upload de imagens falha.
+
+O `docker/.env` é opcional e serve para o upload de imagens (S3) e para o modo `stripe`. Ele contém credenciais e não é versionado: peça-o a quem montou o ambiente, receba-o somente por um canal privado e coloque-o na pasta `docker/`.
 
 A observabilidade (Prometheus, Loki, Alloy, Grafana e Zipkin) é opcional e pode ser adicionada quando necessária:
 
@@ -422,11 +471,41 @@ O `analytics-api` acrescenta mais uma credencial de encaminhamento do Gateway, g
 
 O `payment-api` também acrescenta uma credencial de encaminhamento do Gateway (`GATEWAY_PAYMENT_DOWNSTREAM_TOKEN`), gerada e persistida da mesma forma, e reutiliza a credencial serviço-a-serviço para chamar o `order-api`.
 
+### Modo de pagamento: simulado ou Stripe
+
+O provedor é definido pela propriedade `payment.provider`. No Docker, o `consul-config` a cadastra no Consul (`config/payment-api/payment.provider`) a partir da variável opcional `PAYMENT_PROVIDER` de `docker/.env`.
+
+| `PAYMENT_PROVIDER` | Comportamento | Credenciais |
+|---|---|---|
+| `simulated` (**padrão acadêmico**; também quando ausente ou vazio) | Aprova o pagamento na própria chamada de checkout e confirma o pedido | **Nenhuma** |
+| `stripe` | Stripe Checkout em modo de teste, com aprovação pelo webhook | Chaves de teste do Stripe ([abaixo](#pagamentos-com-stripe-modo-teste)) |
+
+> **Atenção:** o modo simulado existe **somente para demonstração acadêmica**. Ele não cobra nada e aprova qualquer pagamento de um pedido válido. Nunca o use em um ambiente real.
+
+No modo simulado:
+
+- `docker/.env` pode estar ausente ou sem variáveis do Stripe. O código do Stripe permanece no serviço, mas não é carregado nem validado.
+- `POST /ws/payments/orders/{orderId}/checkout-session` aplica as mesmas regras do pedido (do cliente, `PENDING_PAYMENT`, reserva válida), confirma o pedido no `order-api` e responde com `status: APPROVED` e `provider: simulated`. Os identificadores começam com `sim_`.
+- O `checkoutUrl` aponta para a rota de retorno do Gateway (`/payments/return/success?session_id=sim_<id>&order_id=<id>`), que redireciona para `oma://payment/success`. Com `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` vazias (recomendado), a URL usa **o mesmo endereço com que o cliente chamou o Gateway**: quem chama `http://192.168.0.18:8080` (celular) recebe uma URL nesse IP; quem chama `http://localhost:8080` recebe `localhost`. Não é preciso configurar o IP de cada pessoa. Detalhes e prioridade em [API.md](./API.md#modo-simulado).
+- Preencha `PAYMENT_SUCCESS_URL` apenas se o retorno precisar de outro endereço (por exemplo, atrás de um túnel HTTPS, pois o Gateway recebe `http`). Preenchida, ela sempre tem prioridade; apague valores antigos de `docker/.env`. `PAYMENT_CANCEL_URL` não é usada neste modo.
+- O endereço da requisição depende do `gateway-api` atualizado: ao atualizar o código, reconstrua também o Gateway (`docker compose up -d --build payment-api gateway-api consul-config`).
+- O webhook não é usado: `POST /payments/webhook` responde `400`.
+
+Para alternar o modo, ajuste `PAYMENT_PROVIDER` em `docker/.env` e, na pasta `docker/`, recarregue o Consul e recrie o serviço (o `--build` é necessário apenas se o código mudou):
+
+```bash
+docker compose up -d --build --force-recreate consul-config payment-api
+```
+
+Faça a troca sem pagamentos em andamento: um pagamento aberto continua vinculado ao provedor que o criou.
+
 ### Pagamentos com Stripe (modo teste)
+
+Esta seção vale somente para `PAYMENT_PROVIDER=stripe`.
 
 O `payment-api` lê as credenciais do Stripe do Consul (`config/payment-api/payment.stripe.*`). O `consul-config` cadastra os valores a partir da seção `# --- Stripe / Payment ---` de `docker/.env`; nenhum microsserviço recebe esse arquivo diretamente.
 
-Use somente chaves de **teste**: o serviço não sobe se `STRIPE_SECRET_KEY` não começar com `sk_test_` ou `rk_test_`. Nunca versione chaves.
+Use somente chaves de **teste**: no modo `stripe`, o serviço não sobe se `STRIPE_SECRET_KEY` não começar com `sk_test_` ou `rk_test_`. Nunca versione chaves.
 
 | Variável | Descrição |
 |---|---|
@@ -437,7 +516,7 @@ Use somente chaves de **teste**: o serviço não sobe se `STRIPE_SECRET_KEY` nã
 | `PAYMENT_APP_SUCCESS_URL` | Opcional. Deep link do app para onde `/payments/return/success` redireciona; padrão `oma://payment/success` |
 | `PAYMENT_APP_CANCEL_URL` | Opcional. Deep link do app para onde `/payments/return/cancel` redireciona; padrão `oma://payment/cancel` |
 
-O `payment-api` acrescenta `order_id` às URLs de retorno de cada sessão. Use o IP da máquina na rede local (`ipconfig`) ou um túnel: `localhost` não funciona no celular. No Windows, libere a porta `8080` no firewall para a rede privada.
+No modo `stripe`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` são obrigatórias (o `.env.example` as traz vazias porque o modo simulado não precisa delas). O `payment-api` acrescenta `order_id` às URLs de retorno de cada sessão. Use o IP da máquina na rede local (`ipconfig`) ou um túnel: `localhost` não funciona no celular. No Windows, libere a porta `8080` no firewall para a rede privada.
 
 **Teste local com a Stripe CLI:**
 
@@ -453,7 +532,7 @@ O `payment-api` acrescenta `order_id` às URLs de retorno de cada sessão. Use o
    stripe listen --forward-to localhost:8080/payments/webhook
    ```
 
-3. Preencha `STRIPE_SECRET_KEY`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` em `docker/.env` e suba os serviços (na primeira vez, inclua `--build`):
+3. Defina `PAYMENT_PROVIDER=stripe`, preencha `STRIPE_SECRET_KEY`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` em `docker/.env` e suba os serviços (na primeira vez, inclua `--build`):
 
    ```bash
    cd docker
@@ -492,14 +571,34 @@ Outros cenários:
 
 O Consul configurado com `-dev` é para desenvolvimento local; ele não persiste suas chaves após a remoção/recriação do container. O script repopula o KV ao iniciar o Compose, usando as credenciais persistidas. Em produção, use Consul com ACL/TLS e um gerenciador de segredos apropriado em vez do modo de desenvolvimento.
 
-### Dados de teste
+## Dados de demonstração (seed)
 
-Os bancos são locais de cada pessoa. As migrations já criam:
+> **Somente ambiente local de demonstração.** Os dados fictícios são carregados automaticamente pelo Flyway. Não use as credenciais de demonstração em ambientes reais.
 
-- **Catálogo:** categorias, subcategorias e 24 produtos ativos (`product-api`).
-- **Administrador:** `admin@admin.dev`, senha de desenvolvimento `teste` (`auth-api`). Use somente em ambiente local.
+Os bancos são locais de cada pessoa. Com os bancos vazios, cada microsserviço aplica suas migrações na inicialização:
 
-O **estoque não tem seed**: um produto sem estoque cadastrado não pode ir para o carrinho (`409` com a mensagem *"A quantidade desejada excede a disponibilidade atual do estoque."*). Com o back-end no ar, rode a partir da raiz do repositório:
+- `auth-api`: administrador `admin@admin.dev`, senha de desenvolvimento `teste`, e 20 clientes de teste em `V4__Populate_demo_users.sql` (por exemplo, `ana.bertoldi@demo.example.com`). Todos os clientes usam a senha exclusiva `Demo@2026`.
+- `product-api`: 30 produtos em `V8__Populate_demo_products.sql` (28 ativos), associados às categorias da V3. Os exemplos anteriores são desativados.
+- `inventory-api`: saldos, entradas, reservas e movimentações em `V2__Populate_demo_inventory.sql`. A `V3__Restock_demo_single_units.sql` repõe as peças únicas vendidas no pedido de demonstração, e assim todos os produtos ativos podem ser comprados logo após a primeira subida.
+- `order-api`: pedidos confirmados, cancelados e expirados em `V4__Populate_demo_orders.sql`.
+- `cart-api`: seis carrinhos em `V2__Populate_demo_carts.sql`.
+
+Produtos `SINGLE_UNIT` têm uma unidade: depois de vendidos, ficam sem estoque.
+
+Para recriar os dados em bancos vazios:
+
+```bash
+docker compose -f docker/docker-compose.yml down -v
+docker compose --parallel 1 -f docker/docker-compose.yml up --build -d
+```
+
+> **Atenção:** `down -v` remove todos os volumes PostgreSQL e, consequentemente, todos os dados de negócio e credenciais locais. Não apague os volumes em um ambiente real.
+
+As migrações usam IDs fixos coordenados entre os bancos e avançam as sequences. Elas falham explicitamente se encontrar IDs ou e-mails reservados ao demo, sem apagar ou sobrescrever dados existentes.
+
+### Estoque de produtos novos (opcional)
+
+O estoque de demonstração não exige nenhum script. Produtos cadastrados depois não têm estoque e não podem ir para o carrinho (`409` com a mensagem *"A quantidade desejada excede a disponibilidade atual do estoque."*). Para dar estoque inicial a eles de uma vez, com o back-end no ar, rode a partir da raiz do repositório:
 
 ```bash
 ADMIN_PASSWORD=teste bash docker/scripts/seed-inventory.sh
@@ -508,32 +607,10 @@ ADMIN_PASSWORD=teste bash docker/scripts/seed-inventory.sh
 O script usa a API pelo Gateway e, para cada produto ativo:
 
 - sem registro no estoque: registra e lança a entrada inicial;
-- registrado com saldo físico zero: trata como pendente e lança a entrada inicial;
+- registrado com saldo físico zero (inclusive peças únicas já vendidas): trata como pendente e lança a entrada inicial;
 - registrado com saldo: ignora.
 
 Produtos `MULTI_UNIT` recebem 50 unidades e produtos `SINGLE_UNIT` recebem 1 (o máximo aceito pelo `inventory-api`), com o motivo *"Carga inicial para testes"*. O script pode rodar várias vezes. Sem `ADMIN_PASSWORD`, ele pede a senha sem eco no terminal. Variáveis opcionais: `GATEWAY_URL` (padrão `http://localhost:8080`), `ADMIN_EMAIL`, `SEED_QUANTITY` e `SEED_REASON`. Requer `bash`, `curl` e Python 3 (no Windows, use o Git Bash).
-## Dados de demonstração (seed)
-
-> **Somente ambiente local de demonstração.** Os dados fictícios são carregados automaticamente pelo Flyway. Não use as credenciais de demonstração em ambientes reais.
-
-Ao recriar os bancos PostgreSQL vazios, cada microsserviço aplica suas migrações na inicialização:
-
-- `auth-api`: 20 clientes de teste em `V4__PopulateDemoUsers.sql`. Todos usam a senha exclusiva `Demo@2026`.
-- `product-api`: 30 produtos em `V8__PopulateDemoProducts.sql`, associados às categorias da V3. Os exemplos da V5 são desativados.
-- `inventory-api`: saldos, entradas, reservas e movimentações em `V2__PopulateDemoInventory.sql`.
-- `order-api`: pedidos confirmados, cancelados e expirados em `V4__PopulateDemoOrders.sql`.
-- `cart-api`: seis carrinhos em `V2__PopulateDemoCarts.sql`.
-
-Para recriar os dados em bancos vazios:
-
-```bash
-docker compose -f docker/docker-compose.yml --profile cart --profile analytics down -v
-docker compose --parallel 1 -f docker/docker-compose.yml --profile cart --profile analytics up --build -d
-```
-
-> **Atenção:** `down -v` remove todos os volumes PostgreSQL e, consequentemente, todos os dados de negócio e credenciais locais. Não apague os volumes em um ambiente real.
-
-As migrações usam IDs fixos coordenados entre os bancos e avançam as sequences. Elas falham explicitamente se encontrar IDs ou e-mails reservados ao demo, sem apagar ou sobrescrever dados existentes.
 
 ## Executando localmente
 
@@ -619,7 +696,7 @@ cd analytics-api
 ./mvnw spring-boot:run
 ```
 
-**Payment API** (exige as variáveis `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` no ambiente)
+**Payment API** (por padrão em modo simulado, sem variáveis; com `PAYMENT_PROVIDER=stripe`, exige `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYMENT_SUCCESS_URL` e `PAYMENT_CANCEL_URL` no ambiente)
 
 ```bash
 cd payment-api
@@ -714,14 +791,14 @@ ecommerce-microservices/
 ├── analytics-api/
 │   └── Serviço de coleta e indicadores do painel administrativo
 ├── payment-api/
-│   └── Serviço de pagamentos com Stripe (modo teste)
+│   └── Serviço de pagamentos (simulado ou Stripe em modo teste)
 │
 ├── gateway-api/
 │   └── Gateway e roteamento das requisições
 │
 ├── docker/
 │   ├── docker-compose.yml, consul/ (carregador de configurações) e observabilidade
-│   └── scripts/seed-inventory.sh — estoque inicial para testes
+│   └── scripts/seed-inventory.sh — estoque inicial para produtos novos (opcional)
 │
 ├── start_consul.bat
 │   └── Inicialização e configuração do Consul no Windows

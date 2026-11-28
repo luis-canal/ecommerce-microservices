@@ -17,6 +17,8 @@ public interface PaymentRepository extends JpaRepository<PaymentEntity, Long> {
 
     Optional<PaymentEntity> findFirstByOrderIdAndCustomerIdOrderByIdDesc(Long orderId, Long customerId);
 
+    boolean existsByOrderIdAndStatus(Long orderId, PaymentStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from PaymentEntity p where p.stripeCheckoutSessionId = :sessionId")
     Optional<PaymentEntity> lockBySessionId(@Param("sessionId") String sessionId);

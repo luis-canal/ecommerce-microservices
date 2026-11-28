@@ -43,7 +43,7 @@ class CheckoutServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CheckoutService(repository, orderApi, gateway, 120);
+        service = new CheckoutService(repository, orderApi, gateway, mock(WebhookService.class), 120);
         when(repository.findFirstByOrderIdAndStatusIn(eq(ORDER_ID), any())).thenReturn(Optional.empty());
         when(repository.saveAndFlush(any(PaymentEntity.class))).thenAnswer(invocation -> {
             PaymentEntity payment = invocation.getArgument(0);

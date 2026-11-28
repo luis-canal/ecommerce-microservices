@@ -1372,7 +1372,7 @@ O detalhe administrativo inclui cliente, itens/snapshots, endereço, valores, es
 
 ### Transições internas e pagamento
 
-Um serviço confiável deve chamar diretamente o Order API pela rede interna com `X-Service-Token`. O endpoint de confirmação só deve ser chamado pelo fluxo responsável depois que o pagamento tiver sido aprovado: esse fluxo é o Payment API, que chama `confirm` ao receber do Stripe a notificação de pagamento aprovado e `cancel` quando o pagamento é recusado ou a sessão expira (ver [Pagamentos](#pagamentos)). O segredo não deve ser enviado ao aplicativo cliente; pelo Gateway, essas rotas respondem `401 Unauthorized`.
+Um serviço confiável deve chamar diretamente o Order API pela rede interna com `X-Service-Token`. O endpoint de confirmação só deve ser chamado pelo fluxo responsável depois que o pagamento tiver sido aprovado: esse fluxo é o Payment API, que chama `confirm` ao receber do Stripe a notificação de pagamento aprovado (ou, no [modo simulado](#modo-simulado), durante o próprio checkout) e `cancel` quando o pagamento é recusado ou a sessão expira (ver [Pagamentos](#pagamentos)). O segredo não deve ser enviado ao aplicativo cliente; pelo Gateway, essas rotas respondem `401 Unauthorized`.
 
 | Método e rota interna | Efeito |
 |---|---|
@@ -1856,7 +1856,9 @@ Executa a coleta imediatamente, sem aguardar o próximo ciclo, por exemplo depoi
 
 ## Pagamentos
 
-O `payment-api` integra a loja ao **Stripe Checkout em modo de teste**. Ele inicia o pagamento de um pedido, acompanha o estado do pagamento e comunica o resultado ao `order-api`. O Order API não conhece o provedor: a integração fica isolada no Payment API, atrás de uma interface que permite trocar o provedor.
+O `payment-api` inicia o pagamento de um pedido, acompanha o estado do pagamento e comunica o resultado ao `order-api`. O Order API não conhece o provedor: a integração fica isolada no Payment API, atrás de uma interface que permite trocar o provedor.
+
+A propriedade `payment.provider` escolhe o provedor: `simulated` (**padrão acadêmico**, sem credenciais; ver [Modo simulado](#modo-simulado)) ou `stripe` (**Stripe Checkout em modo de teste**). Os endpoints e o formato das respostas são os mesmos nos dois modos. Salvo quando indicado, o texto abaixo descreve o modo `stripe`.
 
 Regras gerais:
 
@@ -1872,6 +1874,42 @@ Regras gerais:
 3. Ao terminar, o Stripe redireciona o navegador para `GET /payments/return/success` (ou `/cancel`), que redireciona para o deep link do app com `order_id` (e `session_id`). Veja [Retorno do checkout](#retorno-do-checkout).
 4. Em paralelo, o Stripe notifica o webhook. O Payment API confirma o pedido no Order API e marca o pagamento como `APPROVED`.
 5. Na tela de sucesso, consulte `GET /ws/payments/orders/{orderId}` (com o `order_id` recebido no deep link) até o status deixar de ser `PENDING`.
+
+No modo simulado, o frontend segue os mesmos passos; o pagamento já chega `APPROVED` no passo 2 e o passo 4 não existe.
+
+### Modo simulado
+
+> **Somente para demonstração acadêmica.** Nenhum valor é cobrado e todo pagamento de um pedido válido é aprovado.
+
+Ativo com `payment.provider=simulated` (padrão). Não faz chamadas externas e não exige nenhuma variável do Stripe.
+
+`POST /ws/payments/orders/{orderId}/checkout-session`:
+
+1. Valida o pedido no Order API com as mesmas regras: existe, é do cliente, está `PENDING_PAYMENT` e tem reserva suficiente.
+2. Cria o pagamento (`CREATED` → `PENDING`) e o aprova na mesma requisição, pelo mesmo caminho do webhook: chama `confirm` no Order API e marca `APPROVED`.
+3. Responde `200 OK` com o `checkoutUrl` apontando para o [retorno de sucesso](#retorno-do-checkout):
+
+```json
+{
+  "paymentId": 15,
+  "orderId": 42,
+  "status": "APPROVED",
+  "checkoutUrl": "http://localhost:8080/payments/return/success?session_id=sim_15&order_id=42",
+  "provider": "simulated"
+}
+```
+
+- O endereço do `checkoutUrl` segue esta prioridade:
+  1. `PAYMENT_SUCCESS_URL`, quando definida (`{CHECKOUT_SESSION_ID}` é substituído; sem o marcador, `session_id` é acrescentado).
+  2. O esquema da requisição recebida pelo Payment API e o cabeçalho `Host` (com a porta), que o Gateway preserva nas rotas `/ws/payments/**`. Exemplo: uma chamada a `http://10.0.2.2:8080` devolve uma URL em `http://10.0.2.2:8080`.
+  3. `payment.simulated.return-base-url` (padrão `http://localhost:8080`), quando o `Host` está ausente ou não é um `host[:porta]` válido.
+- `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` e `Forwarded` são ignorados: o Gateway não os encaminha, e o cliente poderia forjá-los. Como o Gateway recebe `http`, atrás de um túnel HTTPS defina `PAYMENT_SUCCESS_URL`.
+- O `checkoutUrl` é gravado quando o pagamento é criado; uma nova tentativa do mesmo pagamento devolve a mesma URL.
+- `PAYMENT_CANCEL_URL` não é usada, pois não há cancelamento pelo cliente.
+- Depois da aprovação o pedido está `CONFIRMED`; uma nova chamada responde `409 Conflict`, como no modo `stripe`. Continua valendo no máximo um pagamento aberto por pedido.
+- Se o Order API falhar na confirmação, a resposta é `502 Bad Gateway` e o pagamento continua `PENDING`. Repetir a chamada conclui o mesmo pagamento.
+- Se o Order API recusar a confirmação (reserva expirada nesse intervalo), a resposta traz `status: REFUNDED` (estorno apenas registrado) e o pedido não é confirmado. Consulte sempre o `status`.
+- O [webhook](#webhook-do-stripe) **não é usado**: `POST /payments/webhook` responde `400 Bad Request`.
 
 ### Iniciar pagamento
 
@@ -1891,9 +1929,12 @@ Authorization: Bearer <token>
   "paymentId": 15,
   "orderId": 42,
   "status": "PENDING",
-  "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_test_..."
+  "checkoutUrl": "https://checkout.stripe.com/c/pay/cs_test_...",
+  "provider": "stripe"
 }
 ```
+
+`provider` (`"stripe"` ou `"simulated"`) é um campo opcional que indica qual provedor criou o pagamento; clientes que não o usam podem ignorá-lo.
 
 Comportamento:
 
@@ -1927,17 +1968,18 @@ Exige JWT de cliente. Retorna o pagamento mais recente do pedido do cliente. O f
   "checkoutUrl": null,
   "createdAt": "2026-11-18T12:00:05Z",
   "updatedAt": "2026-11-18T12:01:40Z",
-  "confirmedAt": "2026-11-18T12:01:40Z"
+  "confirmedAt": "2026-11-18T12:01:40Z",
+  "provider": "stripe"
 }
 ```
 
-`checkoutUrl` só vem preenchido enquanto o pagamento está `PENDING`. Sem pagamento para o pedido, ou pedido de outro cliente: `404 Not Found`.
+`checkoutUrl` só vem preenchido enquanto o pagamento está `PENDING`. `provider` segue a mesma regra do checkout e vem `null` quando nenhuma sessão chegou a ser criada. Sem pagamento para o pedido, ou pedido de outro cliente: `404 Not Found`.
 
 ### Retorno do checkout
 
 **`GET /payments/return/success?session_id=...&order_id=...`** e **`GET /payments/return/cancel?order_id=...`**
 
-Rotas públicas (sem JWT) usadas como `success_url` e `cancel_url` do Stripe. Respondem `302 Found` para o deep link do app configurado em `PAYMENT_APP_SUCCESS_URL` / `PAYMENT_APP_CANCEL_URL` (padrão `oma://payment/success` e `oma://payment/cancel`) e **não alteram nenhum status**.
+Rotas públicas (sem JWT) usadas como `success_url` e `cancel_url` do Stripe e, no modo simulado, como destino do `checkoutUrl`. Respondem `302 Found` para o deep link do app configurado em `PAYMENT_APP_SUCCESS_URL` / `PAYMENT_APP_CANCEL_URL` (padrão `oma://payment/success` e `oma://payment/cancel`) e **não alteram nenhum status**.
 
 ```http
 GET /payments/return/success?session_id=cs_test_a1B2&order_id=42
@@ -1948,7 +1990,7 @@ Cache-Control: no-store
 ```
 
 - O `payment-api` acrescenta `order_id` às URLs de retorno de cada sessão; o app não precisa guardar o pedido antes de abrir o Stripe.
-- O destino vem só da configuração. Da requisição seguem apenas `order_id` (número positivo) e `session_id` (`cs_...`); valores com outro formato são descartados.
+- O destino vem só da configuração. Da requisição seguem apenas `order_id` (número positivo) e `session_id` (`cs_...` ou `sim_...`); valores com outro formato são descartados.
 - Use o `order_id` para consultar o pagamento. O `session_id` é apenas informativo.
 
 ### Estados e transições
@@ -1974,6 +2016,8 @@ Os estados do pagamento são próprios e separados dos estados do pedido. As tra
 ### Webhook do Stripe
 
 **`POST /payments/webhook`**
+
+Usado somente no modo `stripe`; no [modo simulado](#modo-simulado), a rota responde `400 Bad Request` a qualquer chamada.
 
 Rota pública (sem JWT), chamada somente pelo Stripe e autenticada pela assinatura do cabeçalho `Stripe-Signature`. O Gateway encaminha o corpo e o cabeçalho sem alterações. Fora de `/ws/`, o Gateway expõe para o Payment API apenas esta rota e as de [retorno do checkout](#retorno-do-checkout).
 

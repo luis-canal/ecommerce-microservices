@@ -27,7 +27,8 @@ services:
     volumes:
       - ./consul/config/load-config.sh:/scripts/load-config.sh:ro
       - auth_internal_secret:/run/secrets
-    # Credenciais externas (STORAGE_*, STRIPE_*, PAYMENT_*_URL), cadastradas no Consul pelo load-config.sh.
+    # Credenciais externas (STORAGE_*, STRIPE_*, PAYMENT_*_URL) e PAYMENT_PROVIDER, cadastradas no
+    # Consul pelo load-config.sh.
     # Vêm de docker/.env, que não é versionado e é lido somente por este container.
     env_file:
       - path: .env
@@ -367,9 +368,10 @@ services:
   # ==========================================================
   # PAYMENT API
   # ==========================================================
-  # Integração com o Stripe (somente modo teste).
+  # Provedor definido no Consul (config/payment-api/payment.provider): "simulated" (padrão,
+  # demonstração acadêmica, sem credenciais) ou "stripe" (somente modo teste).
   # As credenciais do Stripe vêm do Consul (config/payment-api/payment.stripe.*).
-  # Sem chave de teste do Stripe o serviço não sobe. Nenhum outro serviço depende do payment-api.
+  # No modo stripe, sem chave de teste o serviço não sobe. Nenhum outro serviço depende do payment-api.
   payment-api:
     build:
       context: ../payment-api

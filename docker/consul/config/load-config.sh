@@ -379,7 +379,12 @@ put "config/payment-api/payment.security.service-token" "$SERVICE_AUTH_TOKEN"
 put "config/payment-api/payment.clients.order-api.base-url" "http://order-api"
 put "config/payment-api/payment.min-reservation-seconds" "120"
 
-# Stripe (somente modo teste). Os valores vêm de docker/.env, lido somente por este carregador.
+# Provedor: "simulated" (padrão, demonstração acadêmica, sem credenciais) ou "stripe".
+payment_provider="$(printf '%s' "${PAYMENT_PROVIDER:-simulated}" | tr -d '\r')"
+put "config/payment-api/payment.provider" "${payment_provider:-simulated}"
+
+# Stripe (somente modo teste, usado apenas com PAYMENT_PROVIDER=stripe).
+# Os valores vêm de docker/.env, lido somente por este carregador.
 put_external "config/payment-api/payment.stripe.secret-key"     "STRIPE_SECRET_KEY"
 put_external "config/payment-api/payment.stripe.webhook-secret" "STRIPE_WEBHOOK_SECRET"
 put_external "config/payment-api/payment.stripe.success-url"    "PAYMENT_SUCCESS_URL"

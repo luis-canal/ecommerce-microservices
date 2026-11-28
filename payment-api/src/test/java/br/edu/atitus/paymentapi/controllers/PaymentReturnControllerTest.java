@@ -23,6 +23,14 @@ class PaymentReturnControllerTest {
     }
 
     @Test
+    void successKeepsSimulatedSessionId() {
+        var response = controller.success("sim_15", "42");
+
+        assertThat(response.getHeaders().getFirst(HttpHeaders.LOCATION))
+                .isEqualTo("oma://payment/success?order_id=42&session_id=sim_15");
+    }
+
+    @Test
     void cancelRedirectsToAppWithOrder() {
         var response = controller.cancel("42");
 
