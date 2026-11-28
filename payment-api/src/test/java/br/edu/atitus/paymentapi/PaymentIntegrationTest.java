@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 @SpringBootTest(properties = {
         "spring.cloud.consul.enabled=false",
         "spring.config.import=optional:consul:",
+        "payment.provider=stripe",
         "payment.stripe.secret-key=sk_test_integration",
         "payment.stripe.webhook-secret=whsec_integration",
         "payment.stripe.success-url=http://localhost/ok?session_id={CHECKOUT_SESSION_ID}",

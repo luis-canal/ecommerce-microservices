@@ -1,5 +1,7 @@
 package br.edu.atitus.paymentapi.provider;
 
+import java.util.Optional;
+
 /**
  * Fronteira com o provedor de pagamento. Somente a implementação conhece o SDK do provedor;
  * o restante do serviço (e o order-api) não sabe qual provedor está em uso.
@@ -21,4 +23,12 @@ public interface PaymentGateway {
 
     /** Valida a assinatura e converte a notificação recebida no webhook. */
     PaymentEvent parseWebhookEvent(String payload, String signatureHeader);
+
+    /**
+     * Resultado já conhecido logo após a criação da sessão, processado pelo mesmo caminho do
+     * webhook. Vazio (padrão) quando o resultado só chega depois pelo webhook, como no Stripe.
+     */
+    default Optional<PaymentEvent> immediateResult(String sessionId, Long paymentId) {
+        return Optional.empty();
+    }
 }

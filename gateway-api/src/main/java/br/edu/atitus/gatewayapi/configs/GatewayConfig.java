@@ -63,8 +63,11 @@ public class GatewayConfig {
                 .route("cart-api-ws", route -> route
                         .path("/ws/cart", "/ws/cart/**")
                         .uri("lb://cart-api"))
+                // Preserva o Host usado pelo cliente: o payment-api monta com ele o checkoutUrl do
+                // modo simulado. Os cabeçalhos X-Forwarded-* continuam não sendo encaminhados.
                 .route("payment-api-ws", route -> route
                         .path("/ws/payments", "/ws/payments/**")
+                        .filters(filters -> filters.preserveHostHeader())
                         .uri("lb://payment-api"))
                 .build();
     }

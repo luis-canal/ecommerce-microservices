@@ -12,9 +12,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.regex.Pattern;
 
 /**
- * Retorno do navegador após o Stripe Checkout. Público (sem JWT): apenas redireciona para o
- * deep link do app (ex.: oma://payment/success). Não altera nenhum status; a aprovação vem
- * somente do webhook.
+ * Retorno do navegador após o checkout (Stripe ou simulado). Público (sem JWT): apenas
+ * redireciona para o deep link do app (ex.: oma://payment/success). Não altera nenhum status;
+ * a aprovação vem do webhook (Stripe) ou do próprio checkout-session (modo simulado).
  *
  * O destino é fixo pela configuração. Da requisição só seguem session_id e order_id, e apenas
  * quando têm o formato esperado; assim a rota não serve de redirecionamento aberto.
@@ -22,7 +22,8 @@ import java.util.regex.Pattern;
 @RestController
 public class PaymentReturnController {
 
-    private static final Pattern SESSION_ID = Pattern.compile("cs_[A-Za-z0-9_]{1,250}");
+    /** cs_ = sessão do Stripe; sim_ = sessão do modo simulado. */
+    private static final Pattern SESSION_ID = Pattern.compile("(?:cs|sim)_[A-Za-z0-9_]{1,250}");
     private static final Pattern ORDER_ID = Pattern.compile("[1-9][0-9]{0,17}");
 
     private final String appSuccessUrl;

@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -33,9 +34,11 @@ import java.util.Map;
 
 /**
  * Único ponto do serviço que conhece o SDK do Stripe.
- * O construtor valida a configuração: sem chave de teste a aplicação não sobe.
+ * Criado somente com {@code payment.provider=stripe}. O construtor valida a configuração:
+ * nesse modo, sem chave de teste a aplicação não sobe.
  */
 @Component
+@ConditionalOnProperty(name = "payment.provider", havingValue = "stripe")
 public class StripePaymentGateway implements PaymentGateway {
 
     private static final Logger log = LoggerFactory.getLogger(StripePaymentGateway.class);

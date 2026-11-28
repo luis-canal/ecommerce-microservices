@@ -2,6 +2,7 @@ package br.edu.atitus.paymentapi.dtos;
 
 import br.edu.atitus.paymentapi.entities.PaymentEntity;
 import br.edu.atitus.paymentapi.enums.PaymentStatus;
+import br.edu.atitus.paymentapi.provider.PaymentProviderName;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -16,7 +17,8 @@ public record PaymentResponse(
         String checkoutUrl,
         Instant createdAt,
         Instant updatedAt,
-        Instant confirmedAt
+        Instant confirmedAt,
+        String provider
 ) {
     public static PaymentResponse fromEntity(PaymentEntity payment) {
         return new PaymentResponse(
@@ -28,7 +30,8 @@ public record PaymentResponse(
                 payment.getStatus() == PaymentStatus.PENDING ? payment.getCheckoutUrl() : null,
                 payment.getCreatedAt(),
                 payment.getUpdatedAt(),
-                payment.getConfirmedAt()
+                payment.getConfirmedAt(),
+                PaymentProviderName.ofSession(payment.getStripeCheckoutSessionId())
         );
     }
 }

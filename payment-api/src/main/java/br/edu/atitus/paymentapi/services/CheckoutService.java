@@ -8,6 +8,7 @@ import br.edu.atitus.paymentapi.entities.PaymentEntity;
 import br.edu.atitus.paymentapi.enums.PaymentStatus;
 import br.edu.atitus.paymentapi.provider.CheckoutSession;
 import br.edu.atitus.paymentapi.provider.CheckoutSessionRequest;
+import br.edu.atitus.paymentapi.provider.PaymentEvent;
 import br.edu.atitus.paymentapi.provider.PaymentGateway;
 import br.edu.atitus.paymentapi.provider.PaymentProviderException;
 import br.edu.atitus.paymentapi.repositories.PaymentRepository;
@@ -29,6 +30,9 @@ import java.util.Optional;
  * Sem transação longa: o pagamento CREATED é gravado antes da chamada ao provedor
  * (o índice único parcial impede dois pagamentos abertos para o mesmo pedido) e
  * atualizado depois dela.
+ *
+ * Quando o provedor já conhece o resultado (modo simulado), ele é processado em seguida pelo
+ * {@link WebhookService}, com as mesmas transições, confirmação do pedido e deduplicação.
  */
 @Service
 public class CheckoutService {
@@ -41,17 +45,20 @@ public class CheckoutService {
     private final PaymentRepository paymentRepository;
     private final OrderApiClient orderApiClient;
     private final PaymentGateway paymentGateway;
+    private final WebhookService webhookService;
     private final Duration minReservation;
 
     public CheckoutService(
             PaymentRepository paymentRepository,
             OrderApiClient orderApiClient,
             PaymentGateway paymentGateway,
+            WebhookService webhookService,
             @Value("${payment.min-reservation-seconds:120}") long minReservationSeconds
     ) {
         this.paymentRepository = paymentRepository;
         this.orderApiClient = orderApiClient;
         this.paymentGateway = paymentGateway;
+        this.webhookService = webhookService;
         this.minReservation = Duration.ofSeconds(minReservationSeconds);
     }
 
@@ -76,8 +83,15 @@ public class CheckoutService {
             // Outra requisição abriu um pagamento para este pedido ao mesmo tempo.
             return paymentRepository.findFirstByOrderIdAndStatusIn(orderId, PaymentStatus.OPEN)
                     .filter(existing -> existing.getStatus() == PaymentStatus.PENDING)
-                    .map(CheckoutSessionResponse::fromEntity)
+                    .map(this::respond)
                     .orElseThrow(() -> conflict("O pagamento deste pedido já está sendo iniciado; tente novamente."));
+        }
+
+        // Outra requisição pode ter aprovado um pagamento depois da consulta ao order-api acima.
+        if (paymentRepository.existsByOrderIdAndStatus(orderId, PaymentStatus.APPROVED)) {
+            payment.transitionTo(PaymentStatus.CANCELLED);
+            paymentRepository.save(payment);
+            throw conflict("O pedido não está aguardando pagamento.");
         }
 
         CheckoutSession session;
@@ -95,13 +109,35 @@ public class CheckoutService {
         payment.attachCheckoutSession(session.sessionId(), session.url());
         PaymentEntity saved = paymentRepository.save(payment);
         log.info("Pagamento {} aberto para o pedido {}.", saved.getId(), orderId);
-        return CheckoutSessionResponse.fromEntity(saved);
+        return respond(saved);
     }
 
     public PaymentResponse findLatest(Long orderId, Long customerId) {
         return paymentRepository.findFirstByOrderIdAndCustomerIdOrderByIdDesc(orderId, customerId)
                 .map(PaymentResponse::fromEntity)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pagamento não encontrado."));
+    }
+
+    /** Resposta para um pagamento PENDING, concluindo-o antes se o resultado já for conhecido. */
+    private CheckoutSessionResponse respond(PaymentEntity pending) {
+        return immediateResult(pending)
+                .map(result -> complete(pending.getId(), result))
+                .orElseGet(() -> CheckoutSessionResponse.fromEntity(pending));
+    }
+
+    private Optional<PaymentEvent> immediateResult(PaymentEntity payment) {
+        return paymentGateway.immediateResult(payment.getStripeCheckoutSessionId(), payment.getId());
+    }
+
+    /**
+     * Processa o resultado pelo caminho do webhook. Se o order-api falhar, nada é gravado, o
+     * pagamento continua PENDING e uma nova chamada ao checkout tenta de novo.
+     */
+    private CheckoutSessionResponse complete(Long paymentId, PaymentEvent result) {
+        webhookService.process(result);
+        return paymentRepository.findById(paymentId)
+                .map(CheckoutSessionResponse::fromEntity)
+                .orElseThrow(() -> new IllegalStateException("Pagamento " + paymentId + " não encontrado."));
     }
 
     private OrderPaymentInfo loadOwnedOrder(Long orderId, Long customerId) {
@@ -130,6 +166,12 @@ public class CheckoutService {
         boolean orderStillPayable = isPendingPayment(order)
                 && order.reservationExpiresAt() != null
                 && order.reservationExpiresAt().isAfter(Instant.now().plus(minReservation));
+        // Com resultado imediato, um pedido já CONFIRMED indica que a confirmação aconteceu e só
+        // o registro local falhou: o pagamento é concluído em vez de cancelado.
+        Optional<PaymentEvent> result = immediateResult(existing);
+        if (result.isPresent() && (orderStillPayable || "CONFIRMED".equals(order.status()))) {
+            return Optional.of(complete(existing.getId(), result.get()));
+        }
         if (orderStillPayable) {
             return Optional.of(CheckoutSessionResponse.fromEntity(existing));
         }
